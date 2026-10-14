@@ -1,0 +1,205 @@
+{
+  "branch": "downrange",
+  "lambert": {
+    "hop1": 1108.1606190055163,
+    "hop2": 1108.4222607834176
+  },
+  "summary": {
+    "hop1": {
+      "lambert_dv": 1108.1606190055163,
+      "finite_burn_dv": 1268.0210905028248,
+      "hover_dv": 32.48814902870547,
+      "gravity_steering_loss": 127.37232246860299,
+      "propellant": 1335.0191312663642,
+      "burn_time": 187.90721423878728,
+      "duration": 613.5425817679684,
+      "engine_starts": 2
+    },
+    "hop2": {
+      "lambert_dv": 1108.4222607834176,
+      "finite_burn_dv": 1232.8777902924396,
+      "hover_dv": 32.699999907447584,
+      "gravity_steering_loss": 91.75552960157438,
+      "propellant": 859.9512086597895,
+      "burn_time": 139.25532864142406,
+      "duration": 593.9900716830989,
+      "engine_starts": 2
+    },
+    "propellant_used_split": {
+      "fuel": 828.2906943117544,
+      "oxidizer": 1366.6796456143945
+    },
+    "propellant_loaded_split": {
+      "fuel": 911.1197446989114,
+      "oxidizer": 1503.3475787532038
+    },
+    "total": {
+      "m_start": 3914.467323452115,
+      "m_land_hop1": 2579.448192185753,
+      "m_final": 1719.496983525966,
+      "propellant_used": 2194.970339926149,
+      "propellant_loaded": 2414.467323452115,
+      "finite_burn_dv": 2500.8988807952646,
+      "engine_starts": 4,
+      "margin": 219.49698352596602,
+      "loaded_over_used": 1.0999999770080497
+    }
+  },
+  "divert": {
+    "descent_only": {
+      "success": true,
+      "gate_mass": 2608.416037454047,
+      "nominal": {
+        "dv": 25.71017774624306,
+        "propellant": 21.96668005225729,
+        "duration": 16.7303690886472
+      },
+      "divert": {
+        "dv": 33.95080479228043,
+        "propellant": 28.968217016953076,
+        "duration": 18.919111207056115
+      },
+      "extra_dv": 8.240627046037371,
+      "extra_propellant": 7.001536964695788
+    },
+    "wet_mass_cost": 15.03134896270376,
+    "round_trip": {
+      "nominal": {
+        "m_start": 3899.4359744894114,
+        "m_land_hop1": 2577.153110142079,
+        "m_final": 1718.13049728004,
+        "propellant_used": 2181.3054772093715,
+        "propellant_loaded": 2399.4359744894114,
+        "finite_burn_dv": 2491.619634464201,
+        "engine_starts": 4,
+        "margin": 218.1304972800399,
+        "loaded_over_used": 1.0999999768758215
+      },
+      "divert": {
+        "m_start": 3914.467323452115,
+        "m_land_hop1": 2579.448192185753,
+        "m_final": 1719.496983525966,
+        "propellant_used": 2194.970339926149,
+        "propellant_loaded": 2414.467323452115,
+        "finite_burn_dv": 2500.8988807952646,
+        "engine_starts": 4,
+        "margin": 219.49698352596602,
+        "loaded_over_used": 1.0999999770080497
+      },
+      "extra_dv": 9.279246331063405,
+      "extra_propellant": 13.664862716777407
+    }
+  },
+  "solve_wall_s": 5.613725185394287,
+  "n_variables": 2681,
+  "table": [
+    {
+      "phase": "rise",
+      "t_start": 0.0,
+      "t_end": 5.059410773192081,
+      "duration": 5.059410773192081,
+      "engine": "on",
+      "dv": 20.02588359938672,
+      "propellant": 25.701138098156207
+    },
+    {
+      "phase": "ascent",
+      "t_start": 5.059410773192081,
+      "t_end": 84.76858832298036,
+      "duration": 79.70917754978828,
+      "engine": "on",
+      "dv": 592.4401792733313,
+      "propellant": 688.5632156520342
+    },
+    {
+      "phase": "coast",
+      "t_start": 84.76858832298036,
+      "t_end": 510.4039558521614,
+      "duration": 425.63536752918105,
+      "engine": "off",
+      "dv": 0.0,
+      "propellant": -8.185452315956354e-12
+    },
+    {
+      "phase": "braking",
+      "t_start": 510.4039558521614,
+      "t_end": 574.6238359315608,
+      "duration": 64.2198800793994,
+      "engine": "on",
+      "dv": 589.1165119411478,
+      "propellant": 563.7621588559628
+    },
+    {
+      "phase": "hover",
+      "t_start": 574.6238359315608,
+      "t_end": 594.6238359315608,
+      "duration": 20.0,
+      "engine": "on",
+      "dv": 32.48814902870547,
+      "propellant": 28.024773391924555
+    },
+    {
+      "phase": "terminal_downrange",
+      "t_start": 594.6238359315608,
+      "t_end": 613.5425817679684,
+      "duration": 18.91874583640752,
+      "engine": "on",
+      "dv": 33.95036666025333,
+      "propellant": 28.967845268294695
+    },
+    {
+      "phase": "rise2_downrange",
+      "t_start": 613.5425817679684,
+      "t_end": 617.7641766962942,
+      "duration": 4.221594928325787,
+      "engine": "on",
+      "dv": 20.287101126710635,
+      "propellant": 17.156004894407943
+    },
+    {
+      "phase": "ascent2_downrange",
+      "t_start": 617.7641766962942,
+      "t_end": 673.4179043837389,
+      "duration": 55.6537276874447,
+      "engine": "on",
+      "dv": 575.2621584039478,
+      "propellant": 441.7430153865994
+    },
+    {
+      "phase": "coast2_downrange",
+      "t_start": 673.4179043837389,
+      "t_end": 1128.1526474254138,
+      "duration": 454.7347430416749,
+      "engine": "off",
+      "dv": 0.0,
+      "propellant": -9.549694368615746e-12
+    },
+    {
+      "phase": "braking2_downrange",
+      "t_start": 1128.1526474254138,
+      "t_end": 1169.912570111474,
+      "duration": 41.75992268606023,
+      "engine": "on",
+      "dv": 577.0014628739043,
+      "propellant": 366.58963369042453
+    },
+    {
+      "phase": "hover2_downrange",
+      "t_start": 1169.912570111474,
+      "t_end": 1189.912570111474,
+      "duration": 20.0,
+      "engine": "on",
+      "dv": 32.699999907447584,
+      "propellant": 18.765119393512578
+    },
+    {
+      "phase": "terminal2_downrange",
+      "t_start": 1189.912570111474,
+      "t_end": 1207.5326534510673,
+      "duration": 17.620083339593336,
+      "engine": "on",
+      "dv": 27.627067980429327,
+      "propellant": 15.697435294854586
+    }
+  ]
+}

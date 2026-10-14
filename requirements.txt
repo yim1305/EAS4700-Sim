@@ -1,0 +1,6 @@
+casadi
+numpy
+scipy
+matplotlib
+pyyaml
+pytest

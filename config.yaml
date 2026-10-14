@@ -1,0 +1,36 @@
+moon:
+  mu: 4.9028e12              # m^3/s^2
+  radius: 1737.4e3           # m (spherical Moon)
+  omega: 2.6617e-6           # rad/s, about the body z-axis
+g0: 9.80665
+sites:
+  start:  {lat: -85.5, lon: -87.1,  elev: 0.0}
+  target: {lat: -78.9044, lon: -87.1, elev: 0.0}
+engine:
+  n_engines: 4               # continuously throttleable engines, no pulsing; one equivalent engine in the trajectory
+  thrust_per_engine: 6672.0  # N, max per engine
+  isp_vac: 310.0             # s
+  min_throttle: 0.041667     # fraction of T_max = 1112 N / (4 x 6672 N): ONE engine at its 1112 N floor, others shut down
+  mixture_ratio: 1.65        # O/F by mass; split of propellant into oxidizer and fuel (post-processing only)
+vehicle:
+  m_wet: 5000.0              # kg, scaling and starting value only; size mode finds the real wet mass
+  m_dry: 1500.0              # kg, includes structure, sensors and all engines
+mission:
+  propellant_reserve_factor: 1.1   # loaded propellant = 1.1 x propellant used over the whole round trip
+  mode: size                       # size (minimum wet mass) | maximise_margin (fixed m_wet, maximise final mass)
+  hover_time: 20.0           # s (Chang'e-3 precedent), PLACEHOLDER
+  divert_radius: 100.0       # m
+  gate_alt_bounds: [150.0, 1000.0]  # m, PLACEHOLDER. Floor must exceed tan(glide_slope) x divert_radius (100 m) or the divert is infeasible
+  gate_over_target: true     # hop-1 gate directly above the target, so the trunk does not favour the divert site
+limits:
+  h_rise: 50.0               # m, end of vertical rise, PLACEHOLDER
+  min_altitude: 50.0         # m, PLACEHOLDER
+  glide_slope_deg: 45.0      # min elevation angle seen from site, PLACEHOLDER
+  tilt_rate_max_deg_s: 10.0  # PLACEHOLDER
+  td_vert_speed_max: 1.5     # m/s, PLACEHOLDER
+  td_horiz_speed_max: 0.5    # m/s, PLACEHOLDER
+  phase_duration_bounds: {rise: [1, 120], ascent: [1, 600], coast: [1, 2000],
+                          braking: [1, 600], terminal: [1, 300]}   # s, PLACEHOLDER
+solver:
+  nodes: {rise: 10, ascent: 30, coast: 20, braking: 30, hover: 8, terminal: 25}
+  ipopt: {max_iter: 3000, tol: 1.0e-8}

@@ -1,0 +1,115 @@
+import numpy as np
+import pytest
+
+from hopper.divert import divert_descent_cost
+from hopper.lambert import min_dv_hop
+from hopper.postprocess import round_trip_summary, thrust_discard_flags
+from hopper.problem import Problem
+from hopper.validate import repropagate
+
+BRANCH = "downrange"
+
+
+@pytest.fixture(scope="module")
+def rt(params):
+    """Fixed wet mass (config m_wet), maximise the final mass."""
+    pr = Problem(params, BRANCH, mode="maximise_margin")
+    pr.set_guess()
+    sol = pr.solve(print_level=0)
+    lam1 = min_dv_hop(params)
+    lam2 = min_dv_hop(params, r1=params.mission.sites[BRANCH], r2=params.mission.r_start)
+    return sol, round_trip_summary(params, sol, BRANCH, lam1.dv, lam2.dv), lam1, lam2
+
+
+@pytest.fixture(scope="module")
+def sized(params):
+    pr = Problem(params, BRANCH, mode="size")
+    pr.set_guess()
+    return pr.solve(print_level=0)
+
+
+def test_round_trip_converges(rt):
+    assert rt[0].success, rt[0].status
+
+
+def test_hop2_returns_to_start_site(params, rt):
+    x_end = rt[0].phases[f"terminal2_{BRANCH}"]["X"][:, -1]
+    assert np.linalg.norm(x_end[0:3]) < 1e-3                      # offset frame origin = start site
+    assert x_end[6] >= params.vehicle.m_dry
+
+
+def test_hop1_lands_on_divert_site(params, rt):
+    x_end = rt[0].phases[f"terminal_{BRANCH}"]["X"][:, -1]
+    site = params.mission.sites[BRANCH] - params.mission.r_start
+    assert np.linalg.norm(x_end[0:3] - site) < 1e-3
+
+
+def test_delta_v_exceeds_lambert_and_legs_are_similar(rt):
+    _, s, lam1, lam2 = rt
+    assert s["hop1"]["finite_burn_dv"] > lam1.dv
+    assert s["hop2"]["finite_burn_dv"] > lam2.dv
+    assert s["total"]["finite_burn_dv"] >= lam1.dv + lam2.dv
+    assert s["hop2"]["finite_burn_dv"] == pytest.approx(s["hop1"]["finite_burn_dv"], rel=0.10)
+    assert lam2.dv == pytest.approx(lam1.dv, rel=0.01)
+
+
+def test_four_engine_starts_and_no_thrust_discarded(params, rt):
+    sol, s, *_ = rt
+    assert s["total"]["engine_starts"] == 4
+    assert thrust_discard_flags(params, sol) == {}
+
+
+def test_gate_is_above_target_and_above_glide_floor(params, rt):
+    gate = rt[0].phases["hover"]["X"][:, -1]
+    r_abs = gate[0:3] + params.mission.r_start
+    d = r_abs - params.mission.r_target
+    horiz = d - (d @ params.mission.up) * params.mission.up
+    assert np.linalg.norm(horiz) < 1e-3
+    h = np.linalg.norm(r_abs) - params.moon.radius
+    assert h >= np.tan(params.limits.glide_slope) * params.mission.divert_radius
+
+
+def test_size_mode_meets_reserve_factor(params, sized):
+    assert sized.success, sized.status
+    md, f = params.vehicle.m_dry, params.mission.reserve_factor
+    assert sized.m_wet > md
+    assert (sized.m_wet - md) / (sized.m_wet - sized.z) == pytest.approx(f, rel=1e-4)
+
+
+def test_sized_mass_is_smaller_than_the_oversized_config_mass(params, rt, sized):
+    # at the 5000 kg placeholder the loaded/used ratio exceeds 1.1, so the sized wet mass must be lower
+    assert rt[1]["total"]["loaded_over_used"] > params.mission.reserve_factor
+    assert sized.m_wet < params.vehicle.m_wet
+
+
+def test_sized_mass_reproduced_by_a_fixed_mass_run(params, make_params, sized):
+    p2 = make_params({"vehicle": {"m_wet": sized.m_wet}})
+    pr = Problem(p2, BRANCH, mode="maximise_margin")
+    pr.set_guess()
+    s2 = pr.solve(print_level=0)
+    assert s2.success
+    assert (s2.m_wet - p2.vehicle.m_dry) / (s2.m_wet - s2.z) == pytest.approx(params.mission.reserve_factor, rel=1e-3)
+    assert s2.z == pytest.approx(sized.z, rel=1e-3)
+
+
+def test_propellant_split_adds_up(params, rt):
+    s = rt[1]
+    for key in ("propellant_used_split", "propellant_loaded_split"):
+        sp = s[key]
+        assert sp["oxidizer"] / sp["fuel"] == pytest.approx(params.engine.mixture_ratio)
+    used = s["propellant_used_split"]
+    assert used["fuel"] + used["oxidizer"] == pytest.approx(s["total"]["propellant_used"])
+
+
+def test_divert_descent_costs_more_than_nominal(params, rt):
+    d = divert_descent_cost(params, rt[0], BRANCH)
+    assert d["success"]
+    assert d["extra_dv"] > 0 and d["extra_propellant"] > 0
+
+
+def test_repropagation_matches_collocation(params, rt):
+    rep, td = repropagate(params, rt[0], BRANCH)
+    assert max(r["pos_err"] for r in rep) < 0.05
+    assert td["hop1"]["pos_err"] < 0.05
+    assert td["pos_err"] < 0.05
+    assert -td["up_speed"] <= params.limits.td_vert_speed_max + 1e-4
