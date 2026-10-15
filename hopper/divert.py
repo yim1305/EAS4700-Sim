@@ -8,7 +8,7 @@ import casadi as ca
 import numpy as np
 from scipy.integrate import solve_ivp
 
-from .constraints import GlideSlope, MassFloor, ThrustBounds, TiltRate, Touchdown, TouchdownUpright
+from .constraints import GlideSlope, MassFloor, ThrustBounds, TiltRate, Touchdown, TouchdownUpright, LandingRegion
 from .dynamics import make_numpy_rhs, make_scaled_dynamics
 from .environment.terrain import FlatTerrain
 from .initial_guess import _Builder
@@ -28,14 +28,14 @@ class BranchResult:
     dv: float = float("nan")       # finite-burn delta-v of the terminal descent
     propellant: float = float("nan")
     m_final: float = float("nan")
-    touchdown_pos_err: float = float("nan")    # re-propagation vs the branch site [m]
+    touchdown_pos_err: float = float("nan")    # re-propagation vs optimized touchdown [m]
     touchdown_up_speed: float = float("nan")   # vertical speed at touchdown [m/s], negative = descending
     touchdown_tilt_deg: float = float("nan")   # final thrust angle to the local surface normal
 
 
 def gate_state(sol) -> dict:
-    """Moving gate = braking end, including its velocity and control for the terminal junction."""
-    braking = sol.phases["braking"]
+    """Moving gate = observation end, including its velocity and control for the terminal junction."""
+    braking = sol.phases["observation"]
     return dict(x=braking["X"][:, -1].copy(), u=braking["U"][:, -1].copy())
 
 
@@ -54,18 +54,22 @@ def solve_branch(p: Params, gate: dict, branch: str, nodes: int | None = None, p
     site_abs = p.mission.sites[branch]
     site = ca.DM((site_abs - p.mission.r_start) / s.L)
     up = ca.DM(site_abs / np.linalg.norm(site_abs))
-    # stand-in for braking, so the tilt-rate junction constraint sees the gate control
+    # stand-in for observation, so the tilt-rate junction constraint sees the gate control
     prev = SimpleNamespace(powered=True, U=ca.DM(gate["u"] / np.array([s.F] * 4)).reshape((4, 1)))
     ph = make_phase(opti, f"terminal_{branch}", "terminal", n, True, t_bounds=bnd, branch=branch, site=site,
                     site_up=up, prev=prev)
+    ph.landing_target = site
+    if p.mission.landing_tolerance > 0:
+        ph.site = ph.X[0:3, -1]
+        r_end = ca.DM(p.mission.r_start / s.L) + ph.site
+        ph.site_up = r_end / ca.norm_2(r_end)
     args = (p, terrain)
     ph.constraints = [ThrustBounds(*args), MassFloor(*args), GlideSlope(*args), TiltRate(*args),
-                      Touchdown(*args), TouchdownUpright(*args)]
+                      Touchdown(*args), TouchdownUpright(*args), LandingRegion(*args)]
 
     opti.subject_to(ca.vec(tr.defects(f, ph.X, ph.U, ph.tdur, ph.n)) == 0)
     ph.apply_constraints(opti)
     opti.subject_to(ph.X[:, 0] == ca.DM(gate["x"] / scale))
-    opti.subject_to(ph.X[0:3, -1] == site)
     opti.minimize(-ph.X[6, -1])
 
     x0 = gate["x"]
@@ -98,6 +102,7 @@ def solve_branch(p: Params, gate: dict, branch: str, nodes: int | None = None, p
     res.m_final = float(out["X"][6, -1])
     res.propellant = float(out["X"][6, 0] - out["X"][6, -1])
     res.touchdown_pos_err, res.touchdown_up_speed = _repropagate(p, out, branch)
+    site_abs = p.mission.r_start + out["X"][0:3, -1]
     res.touchdown_tilt_deg = thrust_tilt_deg(out["U"][0:3, -1], site_abs / np.linalg.norm(site_abs))
     return res
 
@@ -116,13 +121,13 @@ def _repropagate(p: Params, ph: dict, branch: str):
     sol = solve_ivp(lambda t, x: f(x, np.array([np.interp(t, tn, U[i]) for i in range(4)])), (0.0, T),
                     ph["X"][:, 0], rtol=1e-10, atol=1e-9, method="DOP853")
     x = sol.y[:, -1]
-    site = p.mission.sites[branch]
+    site = p.mission.r_start + ph["X"][0:3, -1]
     return (float(np.linalg.norm(x[0:3] - (site - p.mission.r_start))),
             float(x[3:6] @ (site / np.linalg.norm(site))))
 
 
 def divert_descent_cost(p: Params, sol, branch: str) -> dict:
-    """Cost of the divert descent alone: from the SAME moving gate (end of hop-1 braking), the terminal descent to
+    """Cost of the divert descent alone: from the SAME moving gate (end of hop-1 observation), the terminal descent to
     the divert site against the terminal descent to the nominal site. Each is re-optimised from the gate."""
     gate = gate_state(sol)
     nom = solve_branch(p, gate, "nominal")

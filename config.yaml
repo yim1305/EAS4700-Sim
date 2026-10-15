@@ -19,8 +19,19 @@ mission:
   propellant_reserve_factor: 1.1   # loaded propellant = 1.1 x propellant used over the whole round trip
   mode: size                       # size (minimum wet mass) | maximise_margin (fixed m_wet, maximise final mass)
   divert_radius: 150.0       # m; default sizing case is uprange, back toward the launch site
+  landing_tolerance: 10.0    # m from each selected landing point; tighter design target inside the 50 m requirement
   gate_alt_bounds: [150.0, 1000.0]  # m, PLACEHOLDER; optimizer must satisfy the terminal glide slope at the moving gate
   gate_over_target: true     # hop-1 gate directly above the target, so the trunk does not favour the divert site
+sensor:
+  fov_deg: [90.0, 90.0]      # full horizontal/vertical square FOV; fixed downward body mount
+  max_range: 10000.0         # m slant range to each observed point; established assumed camera capability
+  min_altitude: 10.0         # m, RELAXED PLACEHOLDER; not a camera specification
+  descent_speed_bounds: [0.1, 50.0]  # m/s downward, TIGHTENED PLACEHOLDER; positive minimum prevents hover
+  horizontal_speed_max: 50.0        # m/s, TIGHTENED PLACEHOLDER; assumed sensor operating limit
+  pointing_rate_max_deg_s: 30.0     # RELAXED PLACEHOLDER; existing 10 deg/s vehicle limit still applies
+  observation_time_min: 1.0        # s, RELAXED PLACEHOLDER for acquisition
+  processing_delay: 0.1            # s, RELAXED PLACEHOLDER after acquisition, before divert
+  edge_margin_deg: 5.0             # TIGHTENED PLACEHOLDER per edge: 90 x 90 hardware FOV, 80 x 80 usable
 limits:
   h_rise: 50.0               # m, end of vertical rise, PLACEHOLDER
   min_altitude: 50.0         # m, PLACEHOLDER
@@ -30,7 +41,7 @@ limits:
   td_horiz_speed_max: 0.5    # m/s, PLACEHOLDER
   td_tilt_max_deg: 20.0      # body-up vs surface normal at touchdown; thrust-axis proxy, PLACEHOLDER
   phase_duration_bounds: {rise: [1, 120], ascent: [1, 600], coast: [1, 2000],
-                          braking: [1, 600], terminal: [1, 300]}   # s, PLACEHOLDER
+                          braking: [1, 600], observation: [0.1, 300], terminal: [1, 300]}   # s, PLACEHOLDER
 solver:
-  nodes: {rise: 10, ascent: 30, coast: 20, braking: 30, terminal: 50}  # refined for moving-gate divert propagation
+  nodes: {rise: 10, ascent: 30, coast: 20, braking: 30, observation: 12, terminal: 50}
   ipopt: {max_iter: 3000, tol: 1.0e-8}

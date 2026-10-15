@@ -10,7 +10,7 @@ RETURN = "#d6732b"
 
 
 def plot_round_trip(p, sol, branch, summary, output_dir="results", *, show=True):
-    """Save a 3D trajectory and flight profiles, then optionally open the two figure windows."""
+    """Save a 3D trajectory and flight profiles, then optionally open the three figure windows."""
     if not sol.success:
         raise ValueError("Plotting requires a converged trajectory")
     if not show:
@@ -65,10 +65,10 @@ def plot_round_trip(p, sol, branch, summary, output_dir="results", *, show=True)
 
     for site, marker, color, label in ((start, "o", "#27804a", "Launch / return site"),
                                      (p.mission.r_target, "+", "0.4", "Original target"),
-                                     (p.mission.sites[branch], "v", "#a43636", "Divert landing")):
+                                     (start + sol.phases[f"terminal_{branch}"]["X"][:3, -1], "v", "#a43636", "Actual divert landing")):
         point = frame @ (site - start) / 1000
         ax3d.scatter(*point, marker=marker, color=color, s=55, label=label, depthshade=False)
-    for i, name in enumerate(("braking", f"braking2_{branch}")):
+    for i, name in enumerate(("observation", f"observation2_{branch}")):
         point = frame @ sol.phases[name]["X"][0:3, -1] / 1000
         ax3d.scatter(*point, marker="*", color="#7045a0", s=80,
                      label="Moving gates" if i == 0 else None, depthshade=False)
@@ -99,7 +99,9 @@ def plot_round_trip(p, sol, branch, summary, output_dir="results", *, show=True)
                     linewidth=1.8, label=seg["label"])
             if not ph["powered"]:
                 ax.axvspan(t[0], t[-1], color="0.5", alpha=0.08)
-        if ph["kind"] == "braking":
+        if ph["kind"] == "observation":
+            for ax in time_axes:
+                ax.axvspan(t[0], t[-1], color="#45a17e", alpha=0.25)
             for ax in time_axes:
                 ax.axvline(t[-1], color="#7045a0", linestyle=":", linewidth=0.8)
         if ph["kind"] == "terminal":
@@ -112,7 +114,7 @@ def plot_round_trip(p, sol, branch, summary, output_dir="results", *, show=True)
         ax.set_xlim(0, elapsed / 60)
         ax.grid(alpha=0.25)
     altitude_ax.legend(loc="upper right", fontsize=9)
-    altitude_ax.text(0.02, 0.95, "Shaded: coast | Dotted: gate", transform=altitude_ax.transAxes,
+    altitude_ax.text(0.02, 0.95, "Grey: coast | Green: sensing | Dotted: gate", transform=altitude_ax.transAxes,
                      va="top", fontsize=8, color="0.4")
     thrust_ax.axhline(p.engine.T_max / 1000, color="0.4", linestyle=":", linewidth=1, label="Maximum")
     thrust_ax.legend(fontsize=8)
@@ -124,7 +126,7 @@ def plot_round_trip(p, sol, branch, summary, output_dir="results", *, show=True)
 
     # Terminal close-up uses the same local height/range definition as the glide-slope constraint.
     ph = sol.phases[f"terminal_{branch}"]
-    site = p.mission.sites[branch]
+    site = start + ph["X"][0:3, -1]
     site_up = site / np.linalg.norm(site)
     offset = start[:, None] + ph["X"][0:3] - site[:, None]
     height = site_up @ offset
@@ -142,16 +144,43 @@ def plot_round_trip(p, sol, branch, summary, output_dir="results", *, show=True)
     divert_ax.legend(fontsize=8)
     fig.suptitle("Flight profiles | Blue: outbound | Orange: return | Surface stay time ignored", fontsize=13)
 
+    # Camera angles during both optimized observation windows, for both required points.
+    from .sensor import image_angles
+    sensor_fig, sensor_axes = plt.subplots(2, 2, figsize=(11, 7), layout="constrained",
+                                           num="Lunar hopper - Hazard camera", clear=True)
+    for row, (name, target, terminal, color) in enumerate((
+            ("observation", p.mission.r_target, f"terminal_{branch}", OUTBOUND),
+            (f"observation2_{branch}", start, f"terminal2_{branch}", RETURN))):
+        ph = sol.phases[name]
+        times = np.linspace(0, ph["t"], ph["X"].shape[1])
+        for point, style, label in ((target, "--", "Original target"),
+                                   (start + sol.phases[terminal]["X"][:3, -1], "-", "Actual touchdown")):
+            angles = np.array([image_angles(T, p.mission.downrange, point - start - r)[:2]
+                               for T, r in zip(ph["U"][:3].T, ph["X"][:3].T)])
+            for col in range(2):
+                ax = sensor_axes[row, col]
+                ax.plot(times, angles[:, col], style, color=color, label=label)
+                limit = np.degrees(p.sensor.fov[col]) / 2
+                ax.axhline(limit, color="0.5", linestyle=":")
+                ax.axhline(-limit, color="0.5", linestyle=":")
+                ax.set(xlabel="Time within sensing window (s)", ylabel="Image angle (deg)",
+                       title=("Outbound" if row == 0 else "Return") + (" horizontal FOV" if col == 0 else " vertical FOV"))
+                ax.grid(alpha=0.25)
+        sensor_axes[row, 0].legend(fontsize=8)
+    sensor_fig.suptitle(f"Bottom camera | {np.degrees(p.sensor.fov[0]):g} x {np.degrees(p.sensor.fov[1]):g} deg usable FOV | Thrust-aligned body axis")
+
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
-    paths = (output_dir / f"trajectory_3d_{branch}.png", output_dir / f"flight_profiles_{branch}.png")
-    for figure, path in zip((fig3d, fig), paths):
+    paths = (output_dir / f"trajectory_3d_{branch}.png", output_dir / f"flight_profiles_{branch}.png",
+             output_dir / f"sensor_pointing_{branch}.png")
+    for figure, path in zip((fig3d, fig, sensor_fig), paths):
         figure.savefig(path, dpi=160, bbox_inches="tight")
         print(f"Plot saved: {path}")
     if show:
-        print("Opening Matplotlib windows; close both windows to finish the run.")
+        print("Opening Matplotlib windows; close the figure windows to finish the run.")
         plt.show(block=True)
     else:
         plt.close(fig3d)
         plt.close(fig)
+        plt.close(sensor_fig)
     return paths

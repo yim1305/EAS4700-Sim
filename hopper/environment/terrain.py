@@ -20,7 +20,8 @@ def altitude(r_start, radius, r, terrain):
     Written as (|r_abs|^2 - R^2)/(|r_abs| + R) to avoid cancelling two Moon-radius numbers.
     Works for numpy arrays and CasADi expressions (r indexable by [0], [1], [2]).
     """
-    ax, ay, az = r_start[0] + r[0], r_start[1] + r[1], r_start[2] + r[2]
+    components = [r[i, :] for i in range(3)] if len(getattr(r, "shape", ())) == 2 else r
+    ax, ay, az = (r_start[i] + components[i] for i in range(3))
     n2 = ax * ax + ay * ay + az * az
     n = n2 ** 0.5
     h = (n2 - radius ** 2) / (n + radius)

@@ -9,7 +9,7 @@ import casadi as ca
 @dataclass
 class Phase:
     name: str
-    kind: str                 # rise | ascent | coast | braking | terminal
+    kind: str                 # rise | ascent | coast | braking | observation | terminal
     n: int                    # collocation intervals (n + 1 nodes)
     powered: bool
     X: object                 # 7 x (n+1), nondimensional (offset position r, v, m)
@@ -21,7 +21,9 @@ class Phase:
     prev: "Phase | None" = None      # preceding phase in the chain (for junction constraints)
     constraints: list = field(default_factory=list)
     t_bounds: tuple | None = None    # nondimensional (lo, hi) if duration is free
-    launch_up: object = None         # numpy local vertical at the launch site (rise phases only)
+    launch_up: object = None         # local vertical at actual launch point; may be symbolic on hop 2
+    landing_target: object = None    # nominal center of the permitted landing region
+    sensor_sites: list = field(default_factory=list)  # observed point offsets from mission start
 
     def apply_constraints(self, opti):
         for c in self.constraints:

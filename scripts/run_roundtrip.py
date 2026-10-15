@@ -1,5 +1,5 @@
 """Main run: round trip with ONE assumed worst-case divert site. Hop 1 (start -> divert site) then hop 2 (divert site ->
-exact start site). Config mission.mode "size" finds the minimum wet mass; "maximise_margin" keeps m_wet fixed.
+start landing region). Config mission.mode "size" finds the minimum wet mass; "maximise_margin" keeps m_wet fixed.
 Prints both hops, the propellant split, the sizing check and the fixed-gate divert verification.
 Shows and saves trajectory plots after validation. Add --no-show to save without opening windows.
 Usage: py scripts/run_roundtrip.py [branch] [--no-show]  (default: uprange, 150 m back toward launch)
@@ -19,7 +19,7 @@ from hopper.lambert import min_dv_hop
 from hopper.params import load_params, report_prechecks
 from hopper.postprocess import phase_table, round_trip_summary, thrust_discard_flags
 from hopper.problem import Problem
-from hopper.validate import repropagate
+from hopper.validate import repropagate, sensor_report
 
 CONFIG = os.path.join(ROOT, "config.yaml")
 
@@ -71,8 +71,9 @@ def main(branch="uprange", *, show_plots=True):
         print(f"  propellant {lab}: {tot:.1f} kg = fuel {sp['fuel']:.1f} + oxidizer {sp['oxidizer']:.1f} "
               f"(O/F {p.engine.mixture_ratio})")
     if size:
+        print("\n== checking sized mass with a second optimization; plots open after validation", flush=True)
         check_sized_mass(p, branch, sol)
-    gate1 = sol.phases["braking"]["X"][:, -1]
+    gate1 = sol.phases["observation"]["X"][:, -1]
     h_g1 = ((gate1[0:3] + p.mission.r_start) @ p.mission.up) - p.moon.radius
     print(f"  hop-1 gate altitude above the target (local vertical): {h_g1:.1f} m")
     print(f"  hop-1 moving gate: vertical speed {gate1[3:6] @ p.mission.up:.2f} m/s, "
@@ -81,6 +82,7 @@ def main(branch="uprange", *, show_plots=True):
     print(f"  thrust-discard flags (|T| < 0.99 Gamma): {flags if flags else 'none'}")
     if flags:
         sys.exit("solution discards paid-for thrust; results were not saved")
+    print("\n== validating trajectory propagation and sensing", flush=True)
     rep, td = repropagate(p, sol, branch)
     print("  re-propagation (solve_ivp), per-phase end error vs collocation:")
     for r in rep:
@@ -89,6 +91,13 @@ def main(branch="uprange", *, show_plots=True):
     print(f"  hop-1 touchdown: pos err {h1.get('pos_err', float('nan')):.3e} m, vertical {h1.get('up_speed', float('nan')):.3f} m/s")
     print(f"  hop-2 touchdown (start site): pos err {td['pos_err']:.3e} m, speed {td['vel']:.3f} m/s, vertical {td['up_speed']:.3f} m/s")
 
+    sensing = sensor_report(p, sol, branch)
+    for name, row in sensing.items():
+        print(f"  {name}: {row['duration']:.2f} s, descent {row['min_descent_speed']:.2f}-{row['max_descent_speed']:.2f} m/s, "
+              f"maximum image angles {row['max_image_angle_deg']}, passed={row['passed']}")
+    if not all(row["passed"] for row in sensing.values()):
+        sys.exit("dense sensor validation failed; results were not saved")
+    print(f"\n== verifying the fixed-gate {branch} divert with a terminal optimization", flush=True)
     div = verify_divert(p, branch, sol)
 
     os.makedirs(os.path.join(ROOT, "results"), exist_ok=True)
@@ -96,12 +105,24 @@ def main(branch="uprange", *, show_plots=True):
         json.dump(dict(branch=branch, lambert=dict(hop1=lam1.dv, hop2=lam2.dv), summary=summ, divert=div,
                        touchdown_limits=dict(tilt_max_deg=math.degrees(p.limits.td_tilt_max),
                                              downward_speed_max=p.limits.td_vert_speed_max,
-                                             horizontal_speed_max=p.limits.td_horiz_speed_max),
+                                             horizontal_speed_max=p.limits.td_horiz_speed_max,
+                                             target_tolerance=p.mission.landing_tolerance),
+                       sensor_assumptions=dict(full_fov_deg=[math.degrees(a + 2 * p.sensor.edge_margin) for a in p.sensor.fov],
+                                               usable_fov_deg=[math.degrees(a) for a in p.sensor.fov],
+                                               edge_margin_deg=math.degrees(p.sensor.edge_margin),
+                                               max_range=p.sensor.max_range,
+                                               min_altitude=p.sensor.min_altitude,
+                                               pointing_rate_max_deg_s=math.degrees(p.sensor.pointing_rate_max),
+                                               descent_speed_bounds=p.sensor.descent_speed_bounds,
+                                               horizontal_speed_max=p.sensor.horizontal_speed_max,
+                                               observation_time_min=p.sensor.observation_time_min,
+                                               processing_delay=p.sensor.processing_delay),
                        gate=dict(altitude=float(h_g1), velocity=gate1[3:6].tolist(),
                                  vertical_speed=float(gate1[3:6] @ p.mission.up)),
-                       validation=dict(phases=rep, touchdown=td),
+                       validation=dict(phases=rep, touchdown=td, sensing=sensing),
                        solve_wall_s=wall, n_variables=pr.opti.nx, table=rows), fh, indent=2)
     from hopper.plotting import plot_round_trip
+    print("\n== validation complete; generating three Matplotlib figures", flush=True)
     plot_round_trip(p, sol, branch, summ, os.path.join(ROOT, "results"), show=show_plots)
     return sol, summ
 

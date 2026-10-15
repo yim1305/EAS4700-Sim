@@ -66,11 +66,11 @@ def build_guess(p: Params, branch: str, h_gate: float | None = None, nodes: dict
     mis = p.mission
     lo, hi = mis.gate_alt_bounds
     if h_gate is None:
-        h_gate = min(max(2.0 * mis.divert_radius, lo * 2.0), hi)
+        h_gate = min(max(3.0 * mis.divert_radius, lo * 2.0), hi)
     guess = _hop_guess(p, mis.r_start, mis.r_target, mis.up, {branch: mis.sites[branch]}, p.vehicle.m_wet, nodes,
                        h_gate)
     up_s = mis.r_start / np.linalg.norm(mis.r_start)
-    h2 = h_gate2 if h_gate2 is not None else min(max(1.5 * lo, 100.0), hi)
+    h2 = h_gate2 if h_gate2 is not None else min(max(2.0 * lo, 100.0), hi)
     m_land = guess[f"terminal_{branch}"]["X"][6, -1]
     g2 = _hop_guess(p, mis.sites[branch], mis.r_start, up_s, {"home": mis.r_start}, m_land, nodes, h2)
     for k, v in g2.items():
@@ -134,14 +134,20 @@ def _hop_guess(p: Params, launch, gate_site, gate_up, sites: dict, m0: float, no
     # ---- 2'. ascent burn: rise end -> coast start
     guess["ascent"] = b.powered(r_rise, v_rise * up_s, m_rise, r_a, v_a, m_asc, t_asc, nodes["ascent"])
 
-    # ---- 4. braking burn: coast end -> gate (v = 0)
-    guess["braking"] = b.powered(r_b_act, v_b_act, m_asc, r_gate, np.zeros(3), m_brk, t_brk,
+    # ---- 4. Brake to a descending camera window, then reach the decision gate.
+    t_obs = max(p.sensor.observation_time_min + p.sensor.processing_delay, bounds["observation"][0]) * 1.1
+    v_gate = -min(10.0, p.sensor.descent_speed_bounds[1] / 2) * gate_up
+    r_obs = r_gate - v_gate * t_obs
+    m_obs = m_brk * math.exp(-g * t_obs / ve)
+    guess["braking"] = b.powered(r_b_act, v_b_act, m_asc, r_obs, v_gate, m_brk, t_brk,
                                  nodes["braking"])
+    guess["observation"] = b.powered(r_obs, v_gate, m_brk, r_gate, v_gate, m_obs, t_obs,
+                                     nodes["observation"])
 
-    # ---- 5. terminal descents (zero gate speed is only an initial guess, not a constraint)
+    # ---- 6. Terminal descent begins with downward motion, without a hover.
     t_term = clip(3.0 * math.sqrt(2 * h_gate / g), "terminal")
-    m_term = m_brk * (1.0 - g * t_term / ve)
+    m_term = m_obs * (1.0 - g * t_term / ve)
     for br, site in sites.items():
-        guess[f"terminal_{br}"] = b.powered(r_gate, np.zeros(3), m_brk, site, np.zeros(3),
+        guess[f"terminal_{br}"] = b.powered(r_gate, v_gate, m_obs, site, np.zeros(3),
                                             m_term, t_term, nodes["terminal"])
     return guess
