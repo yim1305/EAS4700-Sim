@@ -9,7 +9,7 @@ import casadi as ca
 @dataclass
 class Phase:
     name: str
-    kind: str                 # rise | ascent | coast | braking | hover | terminal
+    kind: str                 # rise | ascent | coast | braking | terminal
     n: int                    # collocation intervals (n + 1 nodes)
     powered: bool
     X: object                 # 7 x (n+1), nondimensional (offset position r, v, m)

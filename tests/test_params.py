@@ -28,22 +28,22 @@ def test_downrange_points_toward_start_to_target(params):
     assert (m.r_target - m.r_start) @ m.downrange > 0
 
 
-def test_divert_sites_100m_from_target_on_surface(params):
+def test_divert_sites_150m_from_target_on_surface(params):
     m = params.mission
     Rt = np.linalg.norm(m.r_target)
     for name in ("uprange", "downrange", "left", "right"):
         site = m.sites[name]
         assert np.linalg.norm(site) == pytest.approx(Rt, abs=1e-6)
-        assert np.linalg.norm(site - m.r_target) == pytest.approx(100.0, abs=1e-3)
+        assert np.linalg.norm(site - m.r_target) == pytest.approx(150.0, abs=1e-3)
 
 
 def test_divert_directions(params):
     m = params.mission
     d = {k: m.sites[k] - m.r_target for k in ("uprange", "downrange", "left", "right")}
-    assert d["downrange"] @ m.downrange > 99.9
-    assert d["uprange"] @ m.downrange < -99.9
-    assert d["left"] @ m.left > 99.9
-    assert d["right"] @ m.left < -99.9
+    assert d["downrange"] @ m.downrange > 149.9
+    assert d["uprange"] @ m.downrange < -149.9
+    assert d["left"] @ m.left > 149.9
+    assert d["right"] @ m.left < -149.9
 
 
 def test_derived_values(params):
@@ -60,12 +60,6 @@ def test_prechecks_pass_for_default(params):
     assert report_prechecks(params, out=lambda *_: None) == []
 
 
-def test_hover_warning_when_tmin_too_high(make_params):
-    p = make_params({"engine": {"min_throttle": 0.5}})
-    warns = report_prechecks(p, out=lambda *_: None)
-    assert any("hover" in w for w in warns)
-
-
 def test_rejects_bad_units(make_params):
     with pytest.raises(ValueError):
         make_params({"moon": {"radius": 1737.4}})   # km instead of m
@@ -78,3 +72,12 @@ def test_rejects_bad_units(make_params):
 def test_divert_radius_override(make_params):
     p = make_params({"mission": {"divert_radius": 50.0}})
     assert np.linalg.norm(p.mission.sites["left"] - p.mission.r_target) == pytest.approx(50.0, abs=1e-3)
+
+
+def test_touchdown_tilt_units_and_range(make_params):
+    p = make_params({"limits": {"td_tilt_max_deg": 20.0}})
+    assert p.limits.td_tilt_max == pytest.approx(np.radians(20.0))
+    assert make_params({"limits": {"td_tilt_max_deg": 0.0}}).limits.td_tilt_max == 0.0
+    for angle in (-1, 90, float("nan")):
+        with pytest.raises(ValueError, match="td_tilt_max_deg"):
+            make_params({"limits": {"td_tilt_max_deg": angle}})

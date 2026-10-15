@@ -18,9 +18,8 @@ vehicle:
 mission:
   propellant_reserve_factor: 1.1   # loaded propellant = 1.1 x propellant used over the whole round trip
   mode: size                       # size (minimum wet mass) | maximise_margin (fixed m_wet, maximise final mass)
-  hover_time: 20.0           # s (Chang'e-3 precedent), PLACEHOLDER
-  divert_radius: 100.0       # m
-  gate_alt_bounds: [150.0, 1000.0]  # m, PLACEHOLDER. Floor must exceed tan(glide_slope) x divert_radius (100 m) or the divert is infeasible
+  divert_radius: 150.0       # m; default sizing case is uprange, back toward the launch site
+  gate_alt_bounds: [150.0, 1000.0]  # m, PLACEHOLDER; optimizer must satisfy the terminal glide slope at the moving gate
   gate_over_target: true     # hop-1 gate directly above the target, so the trunk does not favour the divert site
 limits:
   h_rise: 50.0               # m, end of vertical rise, PLACEHOLDER
@@ -29,8 +28,9 @@ limits:
   tilt_rate_max_deg_s: 10.0  # PLACEHOLDER
   td_vert_speed_max: 1.5     # m/s, PLACEHOLDER
   td_horiz_speed_max: 0.5    # m/s, PLACEHOLDER
+  td_tilt_max_deg: 20.0      # body-up vs surface normal at touchdown; thrust-axis proxy, PLACEHOLDER
   phase_duration_bounds: {rise: [1, 120], ascent: [1, 600], coast: [1, 2000],
                           braking: [1, 600], terminal: [1, 300]}   # s, PLACEHOLDER
 solver:
-  nodes: {rise: 10, ascent: 30, coast: 20, braking: 30, hover: 8, terminal: 25}
+  nodes: {rise: 10, ascent: 30, coast: 20, braking: 30, terminal: 50}  # refined for moving-gate divert propagation
   ipopt: {max_iter: 3000, tol: 1.0e-8}

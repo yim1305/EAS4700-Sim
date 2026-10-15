@@ -62,12 +62,12 @@ class MinAltitude(_WithParams):
         opti.subject_to(self.alt(phase.X[0:3, :]) >= self.p.limits.min_altitude / self.s.L)
 
 
-class AltitudeWindow(_WithParams):
-    """Gate altitude window (hover phase)."""
+class GateAltitude(_WithParams):
+    """Altitude window at the braking end (the moving gate), not throughout braking."""
 
     def apply(self, opti, phase):
         lo, hi = self.p.mission.gate_alt_bounds
-        h = self.alt(phase.X[0:3, :])
+        h = self.alt(phase.X[0:3, -1])
         opti.subject_to(h >= lo / self.s.L)
         opti.subject_to(h <= hi / self.s.L)
 
@@ -110,14 +110,46 @@ class TiltRate(_WithParams):
 
 
 class Touchdown(_WithParams):
-    """Downward speed <= td_vert_speed_max and horizontal speed <= td_horiz_speed_max at the last node."""
+    """Descending or level, with bounded downward and horizontal speeds at the last node."""
 
     def apply(self, opti, phase):
         v = phase.X[3:6, -1]
         up = phase.site_up
         vup = ca.dot(up, v)
-        opti.subject_to(-vup <= self.p.limits.td_vert_speed_max / self.s.V)
-        opti.subject_to(ca.dot(v, v) - vup * vup <= (self.p.limits.td_horiz_speed_max / self.s.V) ** 2)
+        vlimit = self.p.limits.td_vert_speed_max / self.s.V
+        hlimit = self.p.limits.td_horiz_speed_max / self.s.V
+        if vlimit == 0:
+            opti.subject_to(vup == 0)
+        else:
+            opti.subject_to(opti.bounded(-1, vup / vlimit, 0))
+        if hlimit == 0:
+            e1, e2 = _tangents(np.asarray(up, dtype=float).reshape(3))
+            opti.subject_to(ca.dot(ca.DM(e1), v) == 0)
+            opti.subject_to(ca.dot(ca.DM(e2), v) == 0)
+        else:
+            # Divide by one power of the limit: order-one boundary gradients without a huge Hessian.
+            vhorizontal = v - vup * up
+            opti.subject_to(ca.dot(vhorizontal, vhorizontal) / hlimit <= hlimit)
+
+
+class TouchdownUpright(_WithParams):
+    """Bound the final thrust/body-up angle to the landing-site surface normal (no attitude dynamics).
+
+    Since |T| <= Gamma, up.T*T >= cos(angle)*Gamma also guarantees the actual thrust angle.
+    The zero-angle case uses two tangential equalities to avoid a degenerate zero-width cone.
+    """
+
+    def apply(self, opti, phase):
+        T = phase.U[0:3, -1]
+        up = phase.site_up
+        angle = self.p.limits.td_tilt_max
+        if angle == 0:
+            e1, e2 = _tangents(np.asarray(up, dtype=float).reshape(3))
+            opti.subject_to(ca.dot(ca.DM(e1), T) == 0)
+            opti.subject_to(ca.dot(ca.DM(e2), T) == 0)
+            opti.subject_to(ca.dot(up, T) >= 0)
+        else:
+            opti.subject_to(ca.dot(up, T) >= np.cos(angle) * phase.U[3, -1])
 
 
 # ---- phase-specific boundary conditions -------------------------------------------------------
@@ -133,15 +165,16 @@ class VerticalRise(_WithParams):
         opti.subject_to(self.alt(phase.X[0:3, -1]) == self.p.limits.h_rise / self.s.L)
 
 
-class HoverHold(_WithParams):
-    """Phase 5: v = 0 at all nodes."""
+class GateDescending(_WithParams):
+    """The gate is reached descending or level; its velocity is otherwise free."""
 
     def apply(self, opti, phase):
-        opti.subject_to(phase.X[3:6, :] == 0)
+        r_abs = self.rs + phase.X[0:3, -1]
+        opti.subject_to(ca.dot(r_abs, phase.X[3:6, -1]) <= 0)
 
 
 class GateOverTarget(_WithParams):
-    """Hop-1 gate (end of the hover) horizontally directly above the target: no tangential offset from the
+    """Hop-1 gate (end of braking) horizontally directly above the target: no tangential offset from the
     target's local vertical, so the trunk does not favour any one divert site. Altitude stays free."""
 
     def apply(self, opti, phase):

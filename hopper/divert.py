@@ -8,13 +8,13 @@ import casadi as ca
 import numpy as np
 from scipy.integrate import solve_ivp
 
-from .constraints import GlideSlope, MassFloor, ThrustBounds, TiltRate, Touchdown
+from .constraints import GlideSlope, MassFloor, ThrustBounds, TiltRate, Touchdown, TouchdownUpright
 from .dynamics import make_numpy_rhs, make_scaled_dynamics
 from .environment.terrain import FlatTerrain
 from .initial_guess import _Builder
 from .params import Params
 from .phases import make_phase
-from .postprocess import phase_dv
+from .postprocess import phase_dv, thrust_tilt_deg
 from .transcription import HermiteSimpson
 
 
@@ -30,19 +30,20 @@ class BranchResult:
     m_final: float = float("nan")
     touchdown_pos_err: float = float("nan")    # re-propagation vs the branch site [m]
     touchdown_up_speed: float = float("nan")   # vertical speed at touchdown [m/s], negative = descending
+    touchdown_tilt_deg: float = float("nan")   # final thrust angle to the local surface normal
 
 
 def gate_state(sol) -> dict:
-    """Gate = last node of the hop-1 hover (dimensional state, plus the last control for the tilt junction)."""
-    hov = sol.phases["hover"]
-    return dict(x=hov["X"][:, -1].copy(), u=hov["U"][:, -1].copy())
+    """Moving gate = braking end, including its velocity and control for the terminal junction."""
+    braking = sol.phases["braking"]
+    return dict(x=braking["X"][:, -1].copy(), u=braking["U"][:, -1].copy())
 
 
 def solve_branch(p: Params, gate: dict, branch: str, nodes: int | None = None, print_level: int = 0,
-                 terrain=None) -> BranchResult:
-    """Terminal descent from the fixed gate state to this branch's site; maximises final mass."""
+                 terrain=None, guess: dict | None = None) -> BranchResult:
+    """Terminal descent from a fixed moving gate; optional same-mesh phase guess for a warm start."""
     s = p.scales
-    n = nodes or p.solver.nodes["terminal"]
+    n = nodes or (guess["X"].shape[1] - 1 if guess is not None else p.solver.nodes["terminal"])
     terrain = terrain or FlatTerrain()
     opti = ca.Opti()
     f = make_scaled_dynamics(p)
@@ -53,12 +54,13 @@ def solve_branch(p: Params, gate: dict, branch: str, nodes: int | None = None, p
     site_abs = p.mission.sites[branch]
     site = ca.DM((site_abs - p.mission.r_start) / s.L)
     up = ca.DM(site_abs / np.linalg.norm(site_abs))
-    # stand-in for the hover phase, so the tilt-rate junction constraint sees the gate control
+    # stand-in for braking, so the tilt-rate junction constraint sees the gate control
     prev = SimpleNamespace(powered=True, U=ca.DM(gate["u"] / np.array([s.F] * 4)).reshape((4, 1)))
     ph = make_phase(opti, f"terminal_{branch}", "terminal", n, True, t_bounds=bnd, branch=branch, site=site,
                     site_up=up, prev=prev)
     args = (p, terrain)
-    ph.constraints = [ThrustBounds(*args), MassFloor(*args), GlideSlope(*args), TiltRate(*args), Touchdown(*args)]
+    ph.constraints = [ThrustBounds(*args), MassFloor(*args), GlideSlope(*args), TiltRate(*args),
+                      Touchdown(*args), TouchdownUpright(*args)]
 
     opti.subject_to(ca.vec(tr.defects(f, ph.X, ph.U, ph.tdur, ph.n)) == 0)
     ph.apply_constraints(opti)
@@ -70,14 +72,15 @@ def solve_branch(p: Params, gate: dict, branch: str, nodes: int | None = None, p
     lo, hi = p.limits.phase_duration_bounds["terminal"]
     t_term = float(np.clip(3.0 * np.sqrt(2.0 * max(_alt(p, x0), 10.0) / p.moon.g_surf), lo * 1.05, hi * 0.95))
     m_term = x0[6] * (1.0 - p.moon.g_surf * t_term / p.engine.ve)
-    g = _Builder(p).powered(x0[0:3] + p.mission.r_start, np.zeros(3), x0[6], site_abs, np.zeros(3),
-                            m_term, t_term, n)
+    g = guess if guess is not None else _Builder(p).powered(
+        x0[0:3] + p.mission.r_start, x0[3:6], x0[6], site_abs, np.zeros(3), m_term, t_term, n)
     opti.set_initial(ph.X, g["X"] / scale[:, None])
     opti.set_initial(ph.U, g["U"] / np.array([s.F] * 4)[:, None])
     opti.set_initial(ph.tdur, g["t"] / s.T)
 
     opti.solver("ipopt", {"expand": True, "print_time": False},
                 {"max_iter": int(p.solver.ipopt["max_iter"]), "tol": float(p.solver.ipopt["tol"]),
+                 "acceptable_iter": 0, "bound_relax_factor": 0,
                  "print_level": print_level, "sb": "yes"})
     try:
         val = opti.solve().value
@@ -95,6 +98,7 @@ def solve_branch(p: Params, gate: dict, branch: str, nodes: int | None = None, p
     res.m_final = float(out["X"][6, -1])
     res.propellant = float(out["X"][6, 0] - out["X"][6, -1])
     res.touchdown_pos_err, res.touchdown_up_speed = _repropagate(p, out, branch)
+    res.touchdown_tilt_deg = thrust_tilt_deg(out["U"][0:3, -1], site_abs / np.linalg.norm(site_abs))
     return res
 
 
@@ -118,7 +122,7 @@ def _repropagate(p: Params, ph: dict, branch: str):
 
 
 def divert_descent_cost(p: Params, sol, branch: str) -> dict:
-    """Cost of the divert descent alone: from the SAME gate (end of the hop-1 hover in `sol`), the terminal descent to
+    """Cost of the divert descent alone: from the SAME moving gate (end of hop-1 braking), the terminal descent to
     the divert site against the terminal descent to the nominal site. Each is re-optimised from the gate."""
     gate = gate_state(sol)
     nom = solve_branch(p, gate, "nominal")

@@ -1,0 +1,234 @@
+{
+  "branch": "uprange",
+  "lambert": {
+    "hop1": 1108.1606190055163,
+    "hop2": 1107.7680129868436
+  },
+  "summary": {
+    "hop1": {
+      "lambert_dv": 1108.1606190055163,
+      "finite_burn_dv": 1230.5684216780821,
+      "gravity_steering_loss": 122.40780267256582,
+      "propellant": 1249.631417909417,
+      "burn_time": 155.81451864778026,
+      "duration": 587.7417573321515,
+      "engine_starts": 2
+    },
+    "hop2": {
+      "lambert_dv": 1107.7680129868436,
+      "finite_burn_dv": 1168.9891110680842,
+      "gravity_steering_loss": 61.2210980812406,
+      "propellant": 799.4680406986347,
+      "burn_time": 98.61643511874558,
+      "duration": 556.3276320274374,
+      "engine_starts": 2
+    },
+    "propellant_used_split": {
+      "fuel": 773.2450787200167,
+      "oxidizer": 1275.8543798880276
+    },
+    "propellant_loaded_split": {
+      "fuel": 850.5695676212963,
+      "oxidizer": 1403.439786575139
+    },
+    "total": {
+      "m_start": 3754.009354196435,
+      "m_land_hop1": 2504.377936287031,
+      "m_final": 1704.909895588391,
+      "propellant_used": 2049.099458608044,
+      "propellant_loaded": 2254.009354196435,
+      "finite_burn_dv": 2399.5575327461665,
+      "engine_starts": 4,
+      "margin": 204.909895588391,
+      "loaded_over_used": 1.099999975466094
+    }
+  },
+  "divert": {
+    "branch": "uprange",
+    "distance": 150.0,
+    "success": true,
+    "status": "Solve_Succeeded",
+    "dv": 44.07279682683707,
+    "propellant": 36.57125648628153,
+    "duration": 14.339802853464398,
+    "touchdown_pos_err": 1.3113831896001116e-05,
+    "touchdown_up_speed": -1.499988298184963
+  },
+  "gate": {
+    "altitude": 156.55563848628663,
+    "velocity": [
+      -0.1287394264754481,
+      2.2255573861813445,
+      13.845980943337919
+    ],
+    "vertical_speed": -14.016170126242738
+  },
+  "validation": {
+    "phases": [
+      {
+        "phase": "rise",
+        "pos_err": 7.45172429670295e-06,
+        "vel_err": 8.30454020025679e-08,
+        "mass_err": 4.671073838835582e-08
+      },
+      {
+        "phase": "ascent",
+        "pos_err": 0.0015722625215366676,
+        "vel_err": 5.900745008015709e-06,
+        "mass_err": 3.620243660407141e-09
+      },
+      {
+        "phase": "coast",
+        "pos_err": 0.00035967791208525783,
+        "vel_err": 1.6423467189315647e-07,
+        "mass_err": 7.275957614183426e-12
+      },
+      {
+        "phase": "braking",
+        "pos_err": 0.00018404433556230227,
+        "vel_err": 2.0505003937845606e-06,
+        "mass_err": 5.035144567955285e-08
+      },
+      {
+        "phase": "terminal_uprange",
+        "pos_err": 6.692128440824055e-05,
+        "vel_err": 5.369196614675942e-06,
+        "mass_err": 4.648603407986229e-06
+      },
+      {
+        "phase": "rise2_uprange",
+        "pos_err": 6.233493589880851e-06,
+        "vel_err": 4.3753735563233216e-08,
+        "mass_err": 4.5317392505239695e-08
+      },
+      {
+        "phase": "ascent2_uprange",
+        "pos_err": 0.001845102466022763,
+        "vel_err": 1.0142419232969541e-05,
+        "mass_err": 7.096150511642918e-08
+      },
+      {
+        "phase": "coast2_uprange",
+        "pos_err": 0.0005131321785658816,
+        "vel_err": 2.6589130382997203e-07,
+        "mass_err": 5.4569682106375694e-12
+      },
+      {
+        "phase": "braking2_uprange",
+        "pos_err": 8.238669989731749e-05,
+        "vel_err": 2.091458673618134e-06,
+        "mass_err": 1.2676173355430365e-07
+      },
+      {
+        "phase": "terminal2_uprange",
+        "pos_err": 1.2567109730453665e-05,
+        "vel_err": 6.800785397017801e-06,
+        "mass_err": 2.2942003852222115e-10
+      }
+    ],
+    "touchdown": {
+      "pos_err": 0.004259871408794117,
+      "vel": 1.5821682133699813,
+      "up_speed": -1.500010555402678,
+      "hop1": {
+        "pos_err": 0.0015542159363919122,
+        "vel": 1.582165021912967,
+        "up_speed": -1.500000439035584
+      }
+    }
+  },
+  "solve_wall_s": 15.070538997650146,
+  "n_variables": 3033,
+  "table": [
+    {
+      "phase": "rise",
+      "t_start": 0.0,
+      "t_end": 4.914148028275155,
+      "duration": 4.914148028275155,
+      "engine": "on",
+      "dv": 20.260084601069615,
+      "propellant": 24.934914904198195
+    },
+    {
+      "phase": "ascent",
+      "t_start": 4.914148028275155,
+      "t_end": 81.12353125754707,
+      "duration": 76.20938322927192,
+      "engine": "on",
+      "dv": 590.5014980221264,
+      "propellant": 658.329820684999
+    },
+    {
+      "phase": "coast",
+      "t_start": 81.12353125754707,
+      "t_end": 513.0507699419182,
+      "duration": 431.9272386843712,
+      "engine": "off",
+      "dv": 0.0,
+      "propellant": 7.275957614183426e-12
+    },
+    {
+      "phase": "braking",
+      "t_start": 513.0507699419182,
+      "t_end": 573.4020127982026,
+      "duration": 60.351242856284294,
+      "engine": "on",
+      "dv": 575.7346665514484,
+      "propellant": 529.7959401464159
+    },
+    {
+      "phase": "terminal_uprange",
+      "t_start": 573.4020127982026,
+      "t_end": 587.7417573321515,
+      "duration": 14.339744533948886,
+      "engine": "on",
+      "dv": 44.072172503437805,
+      "propellant": 36.57074217379659
+    },
+    {
+      "phase": "rise2_uprange",
+      "t_start": 587.7417573321515,
+      "t_end": 591.9886182646552,
+      "duration": 4.2468609325037505,
+      "engine": "on",
+      "dv": 20.018866198984398,
+      "propellant": 16.437200100919654
+    },
+    {
+      "phase": "ascent2_uprange",
+      "t_start": 591.9886182646552,
+      "t_end": 645.9405751165384,
+      "duration": 53.951956851883196,
+      "engine": "on",
+      "dv": 574.2400151676744,
+      "propellant": 428.23230564042433
+    },
+    {
+      "phase": "coast2_uprange",
+      "t_start": 645.9405751165384,
+      "t_end": 1103.6517720252302,
+      "duration": 457.7111969086918,
+      "engine": "off",
+      "dv": 0.0,
+      "propellant": -5.4569682106375694e-12
+    },
+    {
+      "phase": "braking2_uprange",
+      "t_start": 1103.6517720252302,
+      "t_end": 1138.7151360255816,
+      "duration": 35.06336400035132,
+      "engine": "on",
+      "dv": 492.0565904291323,
+      "propellant": 307.7977880062517
+    },
+    {
+      "phase": "terminal2_uprange",
+      "t_start": 1138.7151360255816,
+      "t_end": 1144.069389359589,
+      "duration": 5.35425333400732,
+      "engine": "on",
+      "dv": 82.67363927229307,
+      "propellant": 47.00074695104445
+    }
+  ]
+}
