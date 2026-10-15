@@ -5,7 +5,7 @@ import numpy as np
 
 from .params import Params
 
-HOP_KINDS = ("rise", "ascent", "coast", "braking", "hover", "terminal")
+HOP_KINDS = ("rise", "ascent", "coast", "braking", "terminal")
 
 
 def chain(branch: str) -> list:
@@ -45,6 +45,13 @@ def propellant_split(p: Params, prop: float) -> dict:
     return dict(fuel=prop / (1.0 + mr), oxidizer=prop * mr / (1.0 + mr))
 
 
+def thrust_tilt_deg(thrust, up) -> float:
+    """Actual thrust angle to the surface normal; used as the body-tilt approximation."""
+    vertical = float(thrust @ up)
+    horizontal = np.linalg.norm(thrust - vertical * up)
+    return float(np.degrees(np.arctan2(horizontal, vertical)))
+
+
 def round_trip_summary(p: Params, sol, branch: str, lambert_dv_hop1: float, lambert_dv_hop2: float) -> dict:
     """Per-hop and total numbers for a solved round trip (hop 2 = divert site -> exact start site).
 
@@ -59,9 +66,16 @@ def round_trip_summary(p: Params, sol, branch: str, lambert_dv_hop1: float, lamb
     out = {}
     for tag, hop, lam in (("hop1", hop1, lambert_dv_hop1), ("hop2", hop2, lambert_dv_hop2)):
         dv = sum(r["dv"] for r in hop)
-        dv_hover = sum(r["dv"] for r in hop if r["phase"].startswith("hover"))
-        out[tag] = dict(lambert_dv=lam, finite_burn_dv=dv, hover_dv=dv_hover,
-                        gravity_steering_loss=dv - dv_hover - lam,
+        terminal_name = f"terminal_{branch}" if tag == "hop1" else f"terminal2_{branch}"
+        site_abs = p.mission.sites[branch] if tag == "hop1" else p.mission.r_start
+        up = site_abs / np.linalg.norm(site_abs)
+        touchdown = sol.phases[terminal_name]
+        v = touchdown["X"][3:6, -1]
+        vup = float(v @ up)
+        out[tag] = dict(lambert_dv=lam, finite_burn_dv=dv,
+                        gravity_steering_loss=dv - lam,
+                        touchdown_tilt_deg=thrust_tilt_deg(touchdown["U"][0:3, -1], up),
+                        touchdown_vertical_speed=vup, touchdown_horizontal_speed=float(np.linalg.norm(v - vup * up)),
                         propellant=sum(r["propellant"] for r in hop),
                         burn_time=sum(r["duration"] for r in hop if r["engine"] == "on"),
                         duration=sum(r["duration"] for r in hop), engine_starts=engine_starts(hop))

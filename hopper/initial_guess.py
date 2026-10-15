@@ -138,16 +138,10 @@ def _hop_guess(p: Params, launch, gate_site, gate_up, sites: dict, m0: float, no
     guess["braking"] = b.powered(r_b_act, v_b_act, m_asc, r_gate, np.zeros(3), m_brk, t_brk,
                                  nodes["braking"])
 
-    # ---- 5. hover at the gate
-    t_hov = mis.hover_time
-    m_hov = m_brk * math.exp(-g * t_hov / ve)
-    guess["hover"] = b.powered(r_gate, np.zeros(3), m_brk, r_gate, np.zeros(3), m_hov, t_hov,
-                               nodes["hover"])
-
-    # ---- 6. terminal descents (smooth S-curve from the gate to each site)
+    # ---- 5. terminal descents (zero gate speed is only an initial guess, not a constraint)
     t_term = clip(3.0 * math.sqrt(2 * h_gate / g), "terminal")
-    m_term = m_hov * (1.0 - g * t_term / ve)
+    m_term = m_brk * (1.0 - g * t_term / ve)
     for br, site in sites.items():
-        guess[f"terminal_{br}"] = b.powered(r_gate, np.zeros(3), m_hov, site, np.zeros(3),
+        guess[f"terminal_{br}"] = b.powered(r_gate, np.zeros(3), m_brk, site, np.zeros(3),
                                             m_term, t_term, nodes["terminal"])
     return guess

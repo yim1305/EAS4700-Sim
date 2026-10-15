@@ -1,13 +1,13 @@
 import numpy as np
 import pytest
 
-from hopper.divert import divert_descent_cost
+from hopper.divert import gate_state, solve_branch
 from hopper.lambert import min_dv_hop
 from hopper.postprocess import round_trip_summary, thrust_discard_flags
 from hopper.problem import Problem
 from hopper.validate import repropagate
 
-BRANCH = "downrange"
+BRANCH = "uprange"
 
 
 @pytest.fixture(scope="module")
@@ -60,13 +60,45 @@ def test_four_engine_starts_and_no_thrust_discarded(params, rt):
 
 
 def test_gate_is_above_target_and_above_glide_floor(params, rt):
-    gate = rt[0].phases["hover"]["X"][:, -1]
+    gate = gate_state(rt[0])["x"]
     r_abs = gate[0:3] + params.mission.r_start
     d = r_abs - params.mission.r_target
     horiz = d - (d @ params.mission.up) * params.mission.up
     assert np.linalg.norm(horiz) < 1e-3
     h = np.linalg.norm(r_abs) - params.moon.radius
-    assert h >= np.tan(params.limits.glide_slope) * params.mission.divert_radius
+    # IPOPT's dimensionless feasibility tolerance corresponds to millimetres at hop length scale.
+    h_tol = 2 * params.solver.ipopt["tol"] * params.scales.L
+    assert h >= np.tan(params.limits.glide_slope) * params.mission.divert_radius - h_tol
+    assert params.mission.gate_alt_bounds[0] - h_tol <= h <= params.mission.gate_alt_bounds[1] + h_tol
+    vup = gate[3:6] @ params.mission.up
+    assert vup < -1e-3
+
+
+def test_no_hover_and_moving_gate_is_linked_to_terminal(rt, sized):
+    for sol in (rt[0], sized):
+        assert len(sol.phases) == 10
+        assert all(ph["kind"] != "hover" for ph in sol.phases.values())
+        for braking, terminal in (("braking", f"terminal_{BRANCH}"),
+                                  (f"braking2_{BRANCH}", f"terminal2_{BRANCH}")):
+            gate = sol.phases[braking]["X"][:, -1]
+            np.testing.assert_allclose(sol.phases[terminal]["X"][:, 0], gate, atol=1e-5, rtol=0)
+            assert np.linalg.norm(gate[3:6]) > 1e-3
+
+
+def test_both_touchdowns_are_upright_and_descending(params, rt, sized):
+    for sol in (rt[0], sized):
+        for name, site in ((f"terminal_{BRANCH}", params.mission.sites[BRANCH]),
+                           (f"terminal2_{BRANCH}", params.mission.r_start)):
+            ph = sol.phases[name]
+            up = site / np.linalg.norm(site)
+            T = ph["U"][0:3, -1]
+            angle = np.arccos(np.clip((T @ up) / np.linalg.norm(T), -1, 1))
+            assert angle <= params.limits.td_tilt_max + np.radians(1e-3)
+            v = ph["X"][3:6, -1]
+            vup = v @ up
+            assert -params.limits.td_vert_speed_max - 1e-5 <= vup <= 1e-5
+            assert np.linalg.norm(v - vup * up) <= params.limits.td_horiz_speed_max + 1e-5
+        assert thrust_discard_flags(params, sol) == {}
 
 
 def test_size_mode_meets_reserve_factor(params, sized):
@@ -101,10 +133,14 @@ def test_propellant_split_adds_up(params, rt):
     assert used["fuel"] + used["oxidizer"] == pytest.approx(s["total"]["propellant_used"])
 
 
-def test_divert_descent_costs_more_than_nominal(params, rt):
-    d = divert_descent_cost(params, rt[0], BRANCH)
-    assert d["success"]
-    assert d["extra_dv"] > 0 and d["extra_propellant"] > 0
+def test_uprange_divert_reachable_from_moving_gate(params, sized):
+    gate = gate_state(sized)
+    res = solve_branch(params, gate, BRANCH, guess=sized.phases[f"terminal_{BRANCH}"])
+    assert res.success, res.status
+    np.testing.assert_allclose(res.phase["X"][:, 0], gate["x"], atol=1e-5, rtol=0)
+    assert res.touchdown_pos_err < 0.05, res.touchdown_pos_err
+    assert -params.limits.td_vert_speed_max - 1e-4 <= res.touchdown_up_speed <= 1e-4
+    assert res.touchdown_tilt_deg <= np.degrees(params.limits.td_tilt_max) + 1e-3
 
 
 def test_repropagation_matches_collocation(params, rt):

@@ -43,7 +43,6 @@ class Vehicle:
 
 @dataclass(frozen=True)
 class Mission:
-    hover_time: float
     divert_radius: float
     gate_alt_bounds: tuple
     r_start: np.ndarray                  # absolute, Moon-fixed
@@ -67,6 +66,7 @@ class Limits:
     td_vert_speed_max: float
     td_horiz_speed_max: float
     phase_duration_bounds: dict
+    td_tilt_max: float                   # rad; body-up approximated by resultant thrust direction
 
 
 @dataclass(frozen=True)
@@ -205,7 +205,6 @@ def load_params(path: str, overrides: dict | None = None) -> Params:
     up, downrange, left = target_frame(r_start, r_target)
 
     ms = cfg["mission"]
-    _require(ms["hover_time"] >= 0, "mission.hover_time >= 0")
     _require(ms["divert_radius"] >= 0, "mission.divert_radius >= 0")
     _require(ms.get("mode", "maximise_margin") in ("size", "maximise_margin"),
              "mission.mode must be 'size' or 'maximise_margin'")
@@ -214,7 +213,7 @@ def load_params(path: str, overrides: dict | None = None) -> Params:
     _require(0 <= lo < hi, "mission.gate_alt_bounds must be [lo, hi] with 0 <= lo < hi")
     sites = {"nominal": r_target}
     sites.update(divert_sites(r_target, downrange, left, ms["divert_radius"]))
-    mission = Mission(ms["hover_time"], ms["divert_radius"], (lo, hi), r_start, r_target,
+    mission = Mission(ms["divert_radius"], (lo, hi), r_start, r_target,
                       up, downrange, left, sites, float(np.linalg.norm(r_target - r_start)),
                       bool(ms.get("gate_over_target", False)), ms.get("mode", "maximise_margin"),
                       float(ms.get("propellant_reserve_factor", 1.1)))
@@ -222,15 +221,18 @@ def load_params(path: str, overrides: dict | None = None) -> Params:
     li = cfg["limits"]
     _require(0 < li["glide_slope_deg"] < 90, "limits.glide_slope_deg in (0, 90)")
     _require(li["tilt_rate_max_deg_s"] > 0, "limits.tilt_rate_max_deg_s > 0")
+    _require(0 <= li["td_tilt_max_deg"] < 90, "limits.td_tilt_max_deg in [0, 90)")
+    _require(li["td_vert_speed_max"] >= 0 and li["td_horiz_speed_max"] >= 0,
+             "touchdown speed limits must be nonnegative")
     pdb = {k: tuple(vv) for k, vv in li["phase_duration_bounds"].items()}
     for k in ("rise", "ascent", "coast", "braking", "terminal"):
         _require(k in pdb and 0 < pdb[k][0] < pdb[k][1], f"limits.phase_duration_bounds.{k}")
     limits = Limits(li["h_rise"], li["min_altitude"], math.radians(li["glide_slope_deg"]),
                     math.radians(li["tilt_rate_max_deg_s"]), li["td_vert_speed_max"],
-                    li["td_horiz_speed_max"], pdb)
+                    li["td_horiz_speed_max"], pdb, math.radians(li["td_tilt_max_deg"]))
 
     so = cfg["solver"]
-    for k in ("rise", "ascent", "coast", "braking", "hover", "terminal"):
+    for k in ("rise", "ascent", "coast", "braking", "terminal"):
         _require(int(so["nodes"][k]) >= 2, f"solver.nodes.{k} >= 2")
     solver = Solver({k: int(vv) for k, vv in so["nodes"].items()}, dict(so["ipopt"]))
 
@@ -255,12 +257,4 @@ def report_prechecks(p: Params, out=print) -> list:
         f"{h_min:.0f} m (tan(slope) x divert radius) for a gate directly above the target")
     if not ok:
         warnings.append("gate_alt_bounds floor is not above the glide-slope minimum: divert branches infeasible")
-    hover_T = p.vehicle.m_dry * g
-    ok = p.engine.T_min <= hover_T
-    out(f"[{'OK' if ok else 'WARN'}] hover feasibility: T_min = {p.engine.T_min:.1f} N "
-        f"{'<=' if ok else '>'} m_dry*g = {hover_T:.1f} N")
-    if not ok:
-        warnings.append("engine cannot throttle low enough to hover at dry mass")
-        out("       WARNING: engine cannot throttle low enough to hover at dry mass "
-            f"(fine as long as the vehicle hovers and lands above {p.engine.T_min / g:.0f} kg).")
     return warnings

@@ -1,5 +1,5 @@
 """The round-trip optimal control problem: hop 1 (start site -> gate over the target -> divert site) then hop 2
-(divert site -> gate -> exact start site, no divert). Each hop is rise, ascent burn, coast, braking, hover, terminal
+(divert site -> gate -> exact start site, no divert). Each hop is rise, ascent burn, coast, braking, terminal
 descent."""
 from __future__ import annotations
 
@@ -8,8 +8,8 @@ from dataclasses import dataclass
 import casadi as ca
 import numpy as np
 
-from .constraints import (AltitudeWindow, GateOverTarget, GlideSlope, HoverHold, MassFloor, MinAltitude,
-                          ThrustBounds, TiltRate, Touchdown, VerticalRise)
+from .constraints import (GateAltitude, GateDescending, GateOverTarget, GlideSlope, MassFloor, MinAltitude,
+                          ThrustBounds, TiltRate, Touchdown, TouchdownUpright, VerticalRise)
 from .dynamics import make_scaled_dynamics
 from .environment.terrain import FlatTerrain
 from .initial_guess import build_guess
@@ -17,7 +17,7 @@ from .params import Params
 from .phases import make_phase
 from .transcription import HermiteSimpson
 
-HOP_KINDS = ("rise", "ascent", "coast", "braking", "hover", "terminal")
+HOP_KINDS = ("rise", "ascent", "coast", "braking", "terminal")
 
 
 @dataclass
@@ -32,7 +32,7 @@ class Solution:
 
 
 class Problem:
-    def __init__(self, p: Params, branch: str = "downrange", nodes: dict | None = None, terrain=None,
+    def __init__(self, p: Params, branch: str = "uprange", nodes: dict | None = None, terrain=None,
                  transcription=None, mode: str | None = None):
         """`branch` is the divert site hop 1 lands on (one of mission.sites: nominal, uprange, downrange, left, right).
 
@@ -56,7 +56,7 @@ class Problem:
 
     # ---- construction -----------------------------------------------------------------------
     def _make_hop(self, names, launch_up, site, site_up, gate_over_target):
-        """The six phases of one hop with their constraint lists (one class + one line to add a constraint)."""
+        """The five phases of one hop; the braking end is a moving gate, with no required stop."""
         p, s, opti, n = self.p, self.s, self.opti, self.nodes
         bnd = {k: (lo / s.T, hi / s.T) for k, (lo, hi) in p.limits.phase_duration_bounds.items()}
         args = (p, self.terrain)
@@ -64,21 +64,18 @@ class Problem:
         ascent = make_phase(opti, names[1], "ascent", n["ascent"], True, t_bounds=bnd["ascent"], prev=rise)
         coast = make_phase(opti, names[2], "coast", n["coast"], False, t_bounds=bnd["coast"], prev=ascent)
         braking = make_phase(opti, names[3], "braking", n["braking"], True, t_bounds=bnd["braking"], prev=coast)
-        hover = make_phase(opti, names[4], "hover", n["hover"], True, t_fixed=p.mission.hover_time / s.T,
-                           prev=braking)
-        terminal = make_phase(opti, names[5], "terminal", n["terminal"], True, t_bounds=bnd["terminal"],
-                              branch=self.branch, site=site, site_up=site_up, prev=hover)
+        terminal = make_phase(opti, names[4], "terminal", n["terminal"], True, t_bounds=bnd["terminal"],
+                              branch=self.branch, site=site, site_up=site_up, prev=braking)
         rise.constraints = [ThrustBounds(*args), MassFloor(*args), TiltRate(*args), VerticalRise(*args)]
         ascent.constraints = [ThrustBounds(*args), MassFloor(*args), MinAltitude(*args), TiltRate(*args)]
         coast.constraints = [MassFloor(*args), MinAltitude(*args)]
-        braking.constraints = [ThrustBounds(*args), MassFloor(*args), MinAltitude(*args), TiltRate(*args)]
-        hover.constraints = [ThrustBounds(*args), MassFloor(*args), HoverHold(*args), AltitudeWindow(*args),
-                             TiltRate(*args)]
+        braking.constraints = [ThrustBounds(*args), MassFloor(*args), MinAltitude(*args), TiltRate(*args),
+                               GateAltitude(*args), GateDescending(*args)]
         if gate_over_target:
-            hover.constraints.append(GateOverTarget(*args))
+            braking.constraints.append(GateOverTarget(*args))
         terminal.constraints = [ThrustBounds(*args), MassFloor(*args), GlideSlope(*args), TiltRate(*args),
-                                Touchdown(*args)]
-        return [rise, ascent, coast, braking, hover, terminal]
+                                Touchdown(*args), TouchdownUpright(*args)]
+        return [rise, ascent, coast, braking, terminal]
 
     def _build(self):
         p, s, opti, br = self.p, self.s, self.opti, self.branch
@@ -88,7 +85,7 @@ class Problem:
         up_site = site1 / np.linalg.norm(site1)
 
         # hop 1: start site -> divert site (gate over the target); hop 2: divert site -> exact start site
-        self.hop1 = self._make_hop(("rise", "ascent", "coast", "braking", "hover", f"terminal_{br}"), up_start,
+        self.hop1 = self._make_hop(("rise", "ascent", "coast", "braking", f"terminal_{br}"), up_start,
                                    ca.DM((site1 - m.r_start) / s.L), ca.DM(up_site), m.gate_over_target)
         self.hop2 = self._make_hop(tuple(f"{k}2_{br}" for k in HOP_KINDS), up_site,
                                    ca.DM.zeros(3, 1), ca.DM(up_start), False)   # start site = origin of the offset frame
@@ -153,6 +150,7 @@ class Problem:
     # ---- solve ------------------------------------------------------------------------------
     def solve(self, print_level: int = 5) -> Solution:
         opts = {"max_iter": int(self.p.solver.ipopt["max_iter"]), "tol": float(self.p.solver.ipopt["tol"]),
+                "acceptable_iter": 0, "bound_relax_factor": 0,
                 "print_level": print_level, "sb": "yes"}
         self.opti.solver("ipopt", {"expand": True, "print_time": False}, opts)
         try:
