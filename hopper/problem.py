@@ -1,5 +1,5 @@
 """The round-trip optimal control problem: hop 1 (start site -> gate over the target -> divert site) then hop 2
-(divert site -> gate -> exact start site, no divert). Each hop is rise, ascent burn, coast, braking, terminal
+(divert site -> gate -> start region, no divert). Each hop is rise, ascent, coast, braking, observation, terminal
 descent."""
 from __future__ import annotations
 
@@ -9,7 +9,8 @@ import casadi as ca
 import numpy as np
 
 from .constraints import (GateAltitude, GateDescending, GateOverTarget, GlideSlope, MassFloor, MinAltitude,
-                          ThrustBounds, TiltRate, Touchdown, TouchdownUpright, VerticalRise)
+                          ThrustBounds, TiltRate, Touchdown, TouchdownUpright, VerticalRise, LandingRegion,
+                          SensorObservation)
 from .dynamics import make_scaled_dynamics
 from .environment.terrain import FlatTerrain
 from .initial_guess import build_guess
@@ -17,7 +18,7 @@ from .params import Params
 from .phases import make_phase
 from .transcription import HermiteSimpson
 
-HOP_KINDS = ("rise", "ascent", "coast", "braking", "terminal")
+HOP_KINDS = ("rise", "ascent", "coast", "braking", "observation", "terminal")
 
 
 @dataclass
@@ -55,8 +56,8 @@ class Problem:
         self._build()
 
     # ---- construction -----------------------------------------------------------------------
-    def _make_hop(self, names, launch_up, site, site_up, gate_over_target):
-        """The five phases of one hop; the braking end is a moving gate, with no required stop."""
+    def _make_hop(self, names, launch_up, site, site_up, gate_over_target, observed_target):
+        """Six phases, with descending sensing before the decision gate and an optimized touchdown point."""
         p, s, opti, n = self.p, self.s, self.opti, self.nodes
         bnd = {k: (lo / s.T, hi / s.T) for k, (lo, hi) in p.limits.phase_duration_bounds.items()}
         args = (p, self.terrain)
@@ -64,18 +65,27 @@ class Problem:
         ascent = make_phase(opti, names[1], "ascent", n["ascent"], True, t_bounds=bnd["ascent"], prev=rise)
         coast = make_phase(opti, names[2], "coast", n["coast"], False, t_bounds=bnd["coast"], prev=ascent)
         braking = make_phase(opti, names[3], "braking", n["braking"], True, t_bounds=bnd["braking"], prev=coast)
-        terminal = make_phase(opti, names[4], "terminal", n["terminal"], True, t_bounds=bnd["terminal"],
-                              branch=self.branch, site=site, site_up=site_up, prev=braking)
+        observation = make_phase(opti, names[4], "observation", n["observation"], True,
+                                 t_bounds=bnd["observation"], prev=braking)
+        terminal = make_phase(opti, names[5], "terminal", n["terminal"], True, t_bounds=bnd["terminal"],
+                              branch=self.branch, site=site, site_up=site_up, prev=observation)
+        terminal.landing_target = site
+        if p.mission.landing_tolerance > 0:
+            terminal.site = terminal.X[0:3, -1]
+            site_abs = ca.DM(p.mission.r_start / s.L) + terminal.site
+            terminal.site_up = site_abs / ca.norm_2(site_abs)
+        observation.sensor_sites = [observed_target, terminal.site]
         rise.constraints = [ThrustBounds(*args), MassFloor(*args), TiltRate(*args), VerticalRise(*args)]
         ascent.constraints = [ThrustBounds(*args), MassFloor(*args), MinAltitude(*args), TiltRate(*args)]
         coast.constraints = [MassFloor(*args), MinAltitude(*args)]
-        braking.constraints = [ThrustBounds(*args), MassFloor(*args), MinAltitude(*args), TiltRate(*args),
-                               GateAltitude(*args), GateDescending(*args)]
+        braking.constraints = [ThrustBounds(*args), MassFloor(*args), MinAltitude(*args), TiltRate(*args)]
+        observation.constraints = [ThrustBounds(*args), MassFloor(*args), TiltRate(*args), GateAltitude(*args),
+                                   GateDescending(*args), SensorObservation(*args)]
         if gate_over_target:
-            braking.constraints.append(GateOverTarget(*args))
+            observation.constraints.append(GateOverTarget(*args))
         terminal.constraints = [ThrustBounds(*args), MassFloor(*args), GlideSlope(*args), TiltRate(*args),
-                                Touchdown(*args), TouchdownUpright(*args)]
-        return [rise, ascent, coast, braking, terminal]
+                                Touchdown(*args), TouchdownUpright(*args), LandingRegion(*args)]
+        return [rise, ascent, coast, braking, observation, terminal]
 
     def _build(self):
         p, s, opti, br = self.p, self.s, self.opti, self.branch
@@ -84,11 +94,12 @@ class Problem:
         up_start = m.r_start / np.linalg.norm(m.r_start)
         up_site = site1 / np.linalg.norm(site1)
 
-        # hop 1: start site -> divert site (gate over the target); hop 2: divert site -> exact start site
-        self.hop1 = self._make_hop(("rise", "ascent", "coast", "braking", f"terminal_{br}"), up_start,
-                                   ca.DM((site1 - m.r_start) / s.L), ca.DM(up_site), m.gate_over_target)
-        self.hop2 = self._make_hop(tuple(f"{k}2_{br}" for k in HOP_KINDS), up_site,
-                                   ca.DM.zeros(3, 1), ca.DM(up_start), False)   # start site = origin of the offset frame
+        # hop 1: start site -> divert site (gate over the target); hop 2: divert site -> start landing region
+        self.hop1 = self._make_hop(("rise", "ascent", "coast", "braking", "observation", f"terminal_{br}"), up_start,
+                                   ca.DM((site1 - m.r_start) / s.L), ca.DM(up_site), m.gate_over_target,
+                                   ca.DM((m.r_target - m.r_start) / s.L))
+        self.hop2 = self._make_hop(tuple(f"{k}2_{br}" for k in HOP_KINDS), self.hop1[-1].site_up,
+                                   ca.DM.zeros(3, 1), ca.DM(up_start), False, ca.DM.zeros(3, 1))
         self.phases = self.hop1 + self.hop2
 
         for ph in self.phases:
@@ -108,12 +119,10 @@ class Problem:
         for hop in (self.hop1, self.hop2):
             for a, b in zip(hop[:-1], hop[1:]):
                 opti.subject_to(b.X[:, 0] == a.X[:, -1])
-        opti.subject_to(term1.X[0:3, -1] == term1.site)      # lands on the divert site (altitude 0, flat terrain)
         # the vehicle sits on the surface between the hops (time ignored): same place, same mass, at rest
         opti.subject_to(rise2.X[0:3, 0] == term1.X[0:3, -1])
         opti.subject_to(rise2.X[3:6, 0] == 0)
         opti.subject_to(rise2.X[6, 0] == term1.X[6, -1])
-        opti.subject_to(term2.X[0:3, -1] == term2.site)      # lands on the exact start site
 
         self.final = term2
         if self.mode == "size":

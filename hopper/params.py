@@ -55,6 +55,7 @@ class Mission:
     gate_over_target: bool = False       # hop-1 gate horizontally directly above the target
     mode: str = "maximise_margin"        # size | maximise_margin
     reserve_factor: float = 1.1          # loaded propellant / worst-case round-trip propellant used
+    landing_tolerance: float = 0.0       # m from the selected nominal landing point
 
 
 @dataclass(frozen=True)
@@ -76,6 +77,19 @@ class Solver:
 
 
 @dataclass(frozen=True)
+class Sensor:
+    fov: tuple                          # usable full FOV angles, radians after edge margin
+    max_range: float
+    min_altitude: float
+    descent_speed_bounds: tuple
+    horizontal_speed_max: float
+    pointing_rate_max: float             # rad/s
+    observation_time_min: float
+    processing_delay: float
+    edge_margin: float = 0.0             # rad per edge inside the hardware FOV
+
+
+@dataclass(frozen=True)
 class Params:
     moon: Moon
     engine: Engine
@@ -83,6 +97,7 @@ class Params:
     mission: Mission
     limits: Limits
     solver: Solver
+    sensor: Sensor
 
     @property
     def tw0(self) -> float:
@@ -206,6 +221,7 @@ def load_params(path: str, overrides: dict | None = None) -> Params:
 
     ms = cfg["mission"]
     _require(ms["divert_radius"] >= 0, "mission.divert_radius >= 0")
+    _require(ms["landing_tolerance"] >= 0, "mission.landing_tolerance >= 0")
     _require(ms.get("mode", "maximise_margin") in ("size", "maximise_margin"),
              "mission.mode must be 'size' or 'maximise_margin'")
     _require(float(ms.get("propellant_reserve_factor", 1.1)) >= 1.0, "mission.propellant_reserve_factor >= 1")
@@ -216,7 +232,22 @@ def load_params(path: str, overrides: dict | None = None) -> Params:
     mission = Mission(ms["divert_radius"], (lo, hi), r_start, r_target,
                       up, downrange, left, sites, float(np.linalg.norm(r_target - r_start)),
                       bool(ms.get("gate_over_target", False)), ms.get("mode", "maximise_margin"),
-                      float(ms.get("propellant_reserve_factor", 1.1)))
+                      float(ms.get("propellant_reserve_factor", 1.1)), float(ms["landing_tolerance"]))
+
+    se = cfg["sensor"]
+    margin = se["edge_margin_deg"]
+    full_fov = tuple(float(a) for a in se["fov_deg"])
+    _require(len(full_fov) == 2 and all(0 < a < 180 for a in full_fov), "sensor hardware FOV in (0, 180)")
+    fov = tuple(a - 2 * margin for a in full_fov)
+    _require(len(fov) == 2 and margin >= 0 and all(0 < a < 180 for a in fov), "sensor usable FOV in (0, 180)")
+    _require(se["max_range"] > se["min_altitude"] > 0, "sensor range > minimum altitude > 0")
+    vmin, vmax = se["descent_speed_bounds"]
+    _require(0 < vmin < vmax, "sensor descent speed bounds require 0 < minimum < maximum")
+    _require(se["horizontal_speed_max"] > 0 and se["pointing_rate_max_deg_s"] > 0, "sensor motion limits > 0")
+    _require(se["observation_time_min"] > 0 and se["processing_delay"] >= 0, "sensor observation > 0, delay >= 0")
+    sensor = Sensor(tuple(math.radians(a) for a in fov), se["max_range"], se["min_altitude"], (vmin, vmax),
+                    se["horizontal_speed_max"], math.radians(se["pointing_rate_max_deg_s"]),
+                    se["observation_time_min"], se["processing_delay"], math.radians(margin))
 
     li = cfg["limits"]
     _require(0 < li["glide_slope_deg"] < 90, "limits.glide_slope_deg in (0, 90)")
@@ -225,18 +256,20 @@ def load_params(path: str, overrides: dict | None = None) -> Params:
     _require(li["td_vert_speed_max"] >= 0 and li["td_horiz_speed_max"] >= 0,
              "touchdown speed limits must be nonnegative")
     pdb = {k: tuple(vv) for k, vv in li["phase_duration_bounds"].items()}
-    for k in ("rise", "ascent", "coast", "braking", "terminal"):
+    for k in ("rise", "ascent", "coast", "braking", "observation", "terminal"):
         _require(k in pdb and 0 < pdb[k][0] < pdb[k][1], f"limits.phase_duration_bounds.{k}")
     limits = Limits(li["h_rise"], li["min_altitude"], math.radians(li["glide_slope_deg"]),
                     math.radians(li["tilt_rate_max_deg_s"]), li["td_vert_speed_max"],
                     li["td_horiz_speed_max"], pdb, math.radians(li["td_tilt_max_deg"]))
+    _require(sensor.observation_time_min + sensor.processing_delay <= pdb["observation"][1],
+             "observation duration ceiling must allow acquisition plus processing")
 
     so = cfg["solver"]
-    for k in ("rise", "ascent", "coast", "braking", "terminal"):
+    for k in ("rise", "ascent", "coast", "braking", "observation", "terminal"):
         _require(int(so["nodes"][k]) >= 2, f"solver.nodes.{k} >= 2")
     solver = Solver({k: int(vv) for k, vv in so["nodes"].items()}, dict(so["ipopt"]))
 
-    return Params(moon, engine, vehicle, mission, limits, solver)
+    return Params(moon, engine, vehicle, mission, limits, solver, sensor)
 
 
 def report_prechecks(p: Params, out=print) -> list:

@@ -5,7 +5,7 @@ from hopper.divert import gate_state, solve_branch
 from hopper.lambert import min_dv_hop
 from hopper.postprocess import round_trip_summary, thrust_discard_flags
 from hopper.problem import Problem
-from hopper.validate import repropagate
+from hopper.validate import repropagate, sensor_report
 
 BRANCH = "uprange"
 
@@ -34,14 +34,14 @@ def test_round_trip_converges(rt):
 
 def test_hop2_returns_to_start_site(params, rt):
     x_end = rt[0].phases[f"terminal2_{BRANCH}"]["X"][:, -1]
-    assert np.linalg.norm(x_end[0:3]) < 1e-3                      # offset frame origin = start site
+    assert np.linalg.norm(x_end[0:3]) <= params.mission.landing_tolerance + 0.01                      # offset frame origin = start site
     assert x_end[6] >= params.vehicle.m_dry
 
 
 def test_hop1_lands_on_divert_site(params, rt):
     x_end = rt[0].phases[f"terminal_{BRANCH}"]["X"][:, -1]
     site = params.mission.sites[BRANCH] - params.mission.r_start
-    assert np.linalg.norm(x_end[0:3] - site) < 1e-3
+    assert np.linalg.norm(x_end[0:3] - site) <= params.mission.landing_tolerance + 0.01
 
 
 def test_delta_v_exceeds_lambert_and_legs_are_similar(rt):
@@ -76,10 +76,10 @@ def test_gate_is_above_target_and_above_glide_floor(params, rt):
 
 def test_no_hover_and_moving_gate_is_linked_to_terminal(rt, sized):
     for sol in (rt[0], sized):
-        assert len(sol.phases) == 10
+        assert len(sol.phases) == 12
         assert all(ph["kind"] != "hover" for ph in sol.phases.values())
-        for braking, terminal in (("braking", f"terminal_{BRANCH}"),
-                                  (f"braking2_{BRANCH}", f"terminal2_{BRANCH}")):
+        for braking, terminal in (("observation", f"terminal_{BRANCH}"),
+                                  (f"observation2_{BRANCH}", f"terminal2_{BRANCH}")):
             gate = sol.phases[braking]["X"][:, -1]
             np.testing.assert_allclose(sol.phases[terminal]["X"][:, 0], gate, atol=1e-5, rtol=0)
             assert np.linalg.norm(gate[3:6]) > 1e-3
@@ -90,6 +90,7 @@ def test_both_touchdowns_are_upright_and_descending(params, rt, sized):
         for name, site in ((f"terminal_{BRANCH}", params.mission.sites[BRANCH]),
                            (f"terminal2_{BRANCH}", params.mission.r_start)):
             ph = sol.phases[name]
+            site = params.mission.r_start + ph["X"][0:3, -1]
             up = site / np.linalg.norm(site)
             T = ph["U"][0:3, -1]
             angle = np.arccos(np.clip((T @ up) / np.linalg.norm(T), -1, 1))
@@ -149,3 +150,16 @@ def test_repropagation_matches_collocation(params, rt):
     assert td["hop1"]["pos_err"] < 0.05
     assert td["pos_err"] < 0.05
     assert -td["up_speed"] <= params.limits.td_vert_speed_max + 1e-4
+
+
+def test_both_observation_windows(params, rt, sized):
+    for sol in (rt[0], sized):
+        report = sensor_report(params, sol, BRANCH)
+        assert len(report) == 2
+        for row in report.values():
+            assert row["passed"], row
+        for terminal in (f"terminal_{BRANCH}", f"terminal2_{BRANCH}"):
+            r = params.mission.r_start + sol.phases[terminal]["X"][:3, -1]
+            assert abs(np.linalg.norm(r) - params.moon.radius) < 0.01
+        np.testing.assert_allclose(sol.phases[f"rise2_{BRANCH}"]["X"][:3, 0],
+                                   sol.phases[f"terminal_{BRANCH}"]["X"][:3, -1], atol=1e-5)

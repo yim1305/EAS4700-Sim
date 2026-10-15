@@ -5,7 +5,7 @@ import numpy as np
 
 from .params import Params
 
-HOP_KINDS = ("rise", "ascent", "coast", "braking", "terminal")
+HOP_KINDS = ("rise", "ascent", "coast", "braking", "observation", "terminal")
 
 
 def chain(branch: str) -> list:
@@ -53,7 +53,7 @@ def thrust_tilt_deg(thrust, up) -> float:
 
 
 def round_trip_summary(p: Params, sol, branch: str, lambert_dv_hop1: float, lambert_dv_hop2: float) -> dict:
-    """Per-hop and total numbers for a solved round trip (hop 2 = divert site -> exact start site).
+    """Per-hop and total numbers for a solved round trip (hop 2 = divert site -> start landing region).
 
     Hop 1 includes the divert terminal descent. The surface stay between the hops is ignored, so engine starts
     are counted per hop and summed (the engine is off on the surface)."""
@@ -68,11 +68,12 @@ def round_trip_summary(p: Params, sol, branch: str, lambert_dv_hop1: float, lamb
         dv = sum(r["dv"] for r in hop)
         terminal_name = f"terminal_{branch}" if tag == "hop1" else f"terminal2_{branch}"
         site_abs = p.mission.sites[branch] if tag == "hop1" else p.mission.r_start
-        up = site_abs / np.linalg.norm(site_abs)
         touchdown = sol.phases[terminal_name]
+        actual_site = p.mission.r_start + touchdown["X"][0:3, -1]
+        up = actual_site / np.linalg.norm(actual_site)
         v = touchdown["X"][3:6, -1]
         vup = float(v @ up)
-        out[tag] = dict(lambert_dv=lam, finite_burn_dv=dv,
+        out[tag] = dict(landing_target_offset=float(np.linalg.norm(actual_site - site_abs)), lambert_dv=lam, finite_burn_dv=dv,
                         gravity_steering_loss=dv - lam,
                         touchdown_tilt_deg=thrust_tilt_deg(touchdown["U"][0:3, -1], up),
                         touchdown_vertical_speed=vup, touchdown_horizontal_speed=float(np.linalg.norm(v - vup * up)),

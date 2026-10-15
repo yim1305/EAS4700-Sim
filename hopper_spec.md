@@ -1,3 +1,5 @@
+> **Historical specification — archived.** This original build brief predates the current model. Use [README.md](README.md), [DESIGN.md](DESIGN.md) and [config.yaml](config.yaml) for the implemented constraints, variables and assumptions. The original text below is preserved; its hover and multi-branch requirements are superseded.
+
 # Lunar Hopper Trajectory Optimizer — Build Spec
 
 ## 0. Instructions for the agent

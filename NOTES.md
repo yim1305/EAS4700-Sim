@@ -1,15 +1,11 @@
 # Status
 
-Working on `Attitude-constraints-test`. Both hops have five phases: rise, ascent, coast, braking, terminal descent. The fixed 20 s hovers are removed. The gate is the braking endpoint, within the configured altitude window, with nonpositive radial velocity and full state continuity into terminal descent.
+Updated 2026-10-15 on Landing-Sensor-Pointing-Constraints. README.md is the current guide, including all active constraints, decision variables and assumptions. DESIGN.md is the design summary. hopper_spec.md is retained as a historical specification with an archive notice.
 
-The user selected one assumed worst-case site, 150 m uprange toward launch. `Problem` and the runner default to this case; automatic nominal and other-direction comparisons are removed. The optimizer can adapt its approach and gate velocity to the selected site, so late-choice robustness and worst-direction ranking are not established.
+Each hop has rise, ascent, coast, braking, descending observation and terminal phases. No hover. Observation ends at the decision gate; its time/altitude are optimized. Outbound gate is above the original target, altitude 150–1000 m. One prescribed 150 m uprange divert is assumed; worst-direction ranking and late-choice robustness are unproven.
 
-Added the user-selected 20 deg touchdown uprightness limit to both terminal phases and standalone divert verification. Body-up is approximated by resultant thrust, assuming aligned engines, without rotational dynamics. The limit applies at the touchdown node. Config: `limits.td_tilt_max_deg`. Explicitly disallow upward touchdown velocity. Corrected lateral-speed constraint conditioning; disabled IPOPT bound relaxation and acceptable-iteration stopping. The runner rejects failed sizing cross-checks and discarded thrust.
+Touchdown is optimized on the surface within 10 m of the divert target or return launch target, inside the 50 m requirement. Actual outbound touchdown position, normal and mass initialize return. Seven states per node, four powered controls, twelve durations and wet mass give 3321 variables in size mode. Gate timing and landing positions follow from those variables; no attitude variables.
 
-Validation: 35 tests pass. Main solve succeeds; wet mass 3756.70 kg, loaded propellant 2256.70 kg, used 2051.54 kg, delta-v 2401.30 m/s. Both touchdown tilts approach 20 deg, with downward speeds below 1.5 m/s and lateral speeds below 0.5 m/s. Chained propagation errors: 0.2 mm outbound, 1.9 mm return. Fixed-gate divert and fixed-mass sizing cross-check pass. Results saved; previous no-uprightness baseline preserved separately. Full mesh convergence remains untested.
+Camera range remains 10 km. Hardware FOV 90 x 90 deg, margin 5 deg per edge, usable 80 x 80. Observation requires original target and actual touchdown visibility, not whole-patch coverage or later terminal tracking. Assumed sensing limits: downward 0.1–50 m/s, horizontal <=50 m/s, altitude >=10 m, acquisition >=1 s, processing 0.1 s. Effective slew cap 10 deg/s. Body-up follows thrust; no rotational dynamics or star trackers.
 
-Plotting: the runner saves/opens a 3D trajectory and six flight profiles, including a divert close-up. `--no-show` saves PNGs without windows. Plot code is isolated in `hopper/plotting.py`. Full headless run, PNG visual inspection and interactive TkAgg availability checked.
-
-VS Code workspace settings now prefer the existing `.venv` interpreter.
-
-Sensor pointing/timing and star trackers remain deferred. Future hazard sensor assumption: bottom-mounted, 90 x 90 deg square FOV. Original `hopper_spec.md` remains unchanged.
+Latest run: wet mass 3766.68 kg, loaded propellant 2266.68 kg; both observation windows 1.10 s. Fixed-mass, fixed-gate, propagation and dense sensing checks pass. Focused tests: 19 passed; full suite last passed 43 tests before tightening/new margin test. Full mesh convergence is untested. JSON and three plots are updated. Higher initial gate guesses aid convergence.

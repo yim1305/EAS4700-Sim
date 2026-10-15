@@ -9,6 +9,8 @@ import numpy as np
 
 from .environment.terrain import Terrain, altitude
 from .params import Params
+from .dynamics import make_scaled_dynamics
+from .sensor import camera_axes
 
 
 class Constraint:
@@ -36,7 +38,7 @@ class _WithParams(Constraint):
 
 
 class ThrustBounds(_WithParams):
-    """T_min <= Gamma <= T_max and |T_vec| <= Gamma on powered phases."""
+    """T_min <= Gamma <= T_max and |T_vec| = Gamma on powered phases."""
 
     def apply(self, opti, phase):
         if not phase.powered:
@@ -45,7 +47,7 @@ class ThrustBounds(_WithParams):
         G = phase.U[3, :]
         lo, hi = self.p.engine.T_min / self.s.F, self.p.engine.T_max / self.s.F
         opti.subject_to(opti.bounded(lo, G, hi))
-        opti.subject_to(ca.sum1(T * T) <= G * G)
+        opti.subject_to(ca.sum1(T * T) == G * G)
 
 
 class MassFloor(_WithParams):
@@ -63,7 +65,7 @@ class MinAltitude(_WithParams):
 
 
 class GateAltitude(_WithParams):
-    """Altitude window at the braking end (the moving gate), not throughout braking."""
+    """Altitude window at the observation end (the decision gate)."""
 
     def apply(self, opti, phase):
         lo, hi = self.p.mission.gate_alt_bounds
@@ -94,7 +96,10 @@ class TiltRate(_WithParams):
     def apply(self, opti, phase):
         if not phase.powered:
             return
-        rate_nd = self.p.limits.tilt_rate_max * self.s.T      # rad per nondimensional time
+        rate = self.p.limits.tilt_rate_max
+        if phase.kind == "observation":
+            rate = min(rate, self.p.sensor.pointing_rate_max)
+        rate_nd = rate * self.s.T      # rad per nondimensional time
         T, G = phase.U[0:3, :], phase.U[3, :]
         n = phase.n
         dt = phase.tdur / n
@@ -123,9 +128,9 @@ class Touchdown(_WithParams):
         else:
             opti.subject_to(opti.bounded(-1, vup / vlimit, 0))
         if hlimit == 0:
-            e1, e2 = _tangents(np.asarray(up, dtype=float).reshape(3))
-            opti.subject_to(ca.dot(ca.DM(e1), v) == 0)
-            opti.subject_to(ca.dot(ca.DM(e2), v) == 0)
+            e1, e2 = _tangents(up, self.p.mission.r_start)
+            opti.subject_to(ca.dot(e1, v) == 0)
+            opti.subject_to(ca.dot(e2, v) == 0)
         else:
             # Divide by one power of the limit: order-one boundary gradients without a huge Hessian.
             vhorizontal = v - vup * up
@@ -144,9 +149,9 @@ class TouchdownUpright(_WithParams):
         up = phase.site_up
         angle = self.p.limits.td_tilt_max
         if angle == 0:
-            e1, e2 = _tangents(np.asarray(up, dtype=float).reshape(3))
-            opti.subject_to(ca.dot(ca.DM(e1), T) == 0)
-            opti.subject_to(ca.dot(ca.DM(e2), T) == 0)
+            e1, e2 = _tangents(up, self.p.mission.r_start)
+            opti.subject_to(ca.dot(e1, T) == 0)
+            opti.subject_to(ca.dot(e2, T) == 0)
             opti.subject_to(ca.dot(up, T) >= 0)
         else:
             opti.subject_to(ca.dot(up, T) >= np.cos(angle) * phase.U[3, -1])
@@ -158,10 +163,10 @@ class VerticalRise(_WithParams):
     """Phase 1: horizontal velocity zero at every node, ends at h = h_rise."""
 
     def apply(self, opti, phase):
-        e1, e2 = _tangents(phase.launch_up)
+        e1, e2 = _tangents(phase.launch_up, self.p.mission.r_start)
         v = phase.X[3:6, :]
-        opti.subject_to(ca.mtimes(ca.DM(e1).T, v) == 0)
-        opti.subject_to(ca.mtimes(ca.DM(e2).T, v) == 0)
+        opti.subject_to(ca.mtimes(e1.T, v) == 0)
+        opti.subject_to(ca.mtimes(e2.T, v) == 0)
         opti.subject_to(self.alt(phase.X[0:3, -1]) == self.p.limits.h_rise / self.s.L)
 
 
@@ -174,7 +179,7 @@ class GateDescending(_WithParams):
 
 
 class GateOverTarget(_WithParams):
-    """Hop-1 gate (end of braking) horizontally directly above the target: no tangential offset from the
+    """Hop-1 gate (end of observation) horizontally directly above the target: no tangential offset from the
     target's local vertical, so the trunk does not favour any one divert site. Altitude stays free."""
 
     def apply(self, opti, phase):
@@ -185,9 +190,64 @@ class GateOverTarget(_WithParams):
         opti.subject_to(ca.mtimes(ca.DM(e2).T, d) == 0)
 
 
-def _tangents(up):
-    """Two unit vectors spanning the plane tangent to `up` (two equations; a redundant third breaks LICQ)."""
-    axis = np.eye(3)[int(np.argmin(np.abs(up)))]
-    e1 = axis - (axis @ up) * up
-    e1 /= np.linalg.norm(e1)
-    return e1, np.cross(up, e1)
+class LandingRegion(_WithParams):
+    """Touch down on the surface within the configured distance of the selected landing point."""
+
+    def apply(self, opti, phase):
+        end = phase.X[0:3, -1]
+        tolerance = self.p.mission.landing_tolerance / self.s.L
+        if tolerance == 0:
+            opti.subject_to(end == phase.landing_target)
+        else:
+            opti.subject_to(self.alt(end) == 0)
+            d = end - phase.landing_target
+            opti.subject_to(ca.dot(d, d) / tolerance <= tolerance)
+
+
+class SensorObservation(_WithParams):
+    """Descending acquisition plus processing, with square-FOV checks at nodes and collocation midpoints."""
+
+    def apply(self, opti, phase):
+        se, s = self.p.sensor, self.s
+        opti.subject_to(phase.tdur >= (se.observation_time_min + se.processing_delay) / s.T)
+        f = make_scaled_dynamics(self.p)
+        X, U, n = phase.X, phase.U, phase.n
+        F = f.map(n + 1)(X, U)
+        Xm = (X[:, :-1] + X[:, 1:]) / 2 + (phase.tdur / n / 8) * (F[:, :-1] - F[:, 1:])
+        Um = (U[:, :-1] + U[:, 1:]) / 2
+        samples_x, samples_u = ca.horzcat(X, Xm), ca.horzcat(U, Um)
+        heading = ca.DM(self.p.mission.downrange)
+        tan_h, tan_v = (np.tan(a / 2) for a in se.fov)
+        vmin, vmax = se.descent_speed_bounds
+        horizontal_max = se.horizontal_speed_max / s.V
+        range_max = se.max_range / s.L
+        for k in range(2 * n + 1):
+            r, v = samples_x[0:3, k], samples_x[3:6, k]
+            r_abs = self.rs + r
+            up = r_abs / ca.norm_2(r_abs)
+            vup = ca.dot(up, v)
+            opti.subject_to(opti.bounded(-1, vup / (vmax / s.V), -vmin / vmax))
+            vhorizontal = v - vup * up
+            opti.subject_to(ca.dot(vhorizontal, vhorizontal) / horizontal_max <= horizontal_max)
+            opti.subject_to(self.alt(r) >= se.min_altitude / s.L)
+            image_x, image_y, boresight = camera_axes(samples_u[0:3, k], heading)
+            for point in phase.sensor_sites:
+                los = point - r
+                depth = ca.dot(boresight, los)
+                opti.subject_to(depth >= 0)
+                opti.subject_to(opti.bounded(-depth * tan_h, ca.dot(image_x, los), depth * tan_h))
+                opti.subject_to(opti.bounded(-depth * tan_v, ca.dot(image_y, los), depth * tan_v))
+                opti.subject_to(ca.dot(los, los) / range_max <= range_max)
+                point_abs = self.rs + point
+                # Convex spherical surface: the observer must lie above the point's tangent plane.
+                opti.subject_to(ca.dot(point_abs / ca.norm_2(point_abs), -los) >= 0)
+
+
+def _tangents(up, reference=None):
+    """Two tangent directions, also supporting an optimized landing/launch normal."""
+    reference = np.asarray(up if reference is None else reference, dtype=float).reshape(3)
+    axis = ca.DM(np.eye(3)[int(np.argmin(np.abs(reference)))])
+    up = ca.reshape(up, 3, 1)
+    e1 = axis - ca.dot(axis, up) * up
+    e1 = e1 / ca.norm_2(e1)
+    return e1, ca.cross(up, e1)
