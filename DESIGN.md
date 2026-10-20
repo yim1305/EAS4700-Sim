@@ -32,7 +32,15 @@ The fixed bottom camera points opposite thrust/body-up. Image orientation follow
 
 ## Assumptions and scope
 
-The vehicle is a 3-DoF point mass in a rotating Moon-fixed frame with central gravity, Coriolis and centrifugal acceleration, spherical zero-height terrain and no drag. Body-up follows thrust; optical roll is prescribed geometrically. Rotational dynamics, star trackers, torque limits, gimbal motion, landing contact, terrain hazards, image formation, navigation errors, guidance feedback and uncertainty are omitted.
+The vehicle is a 3-DoF point mass in a rotating Moon-fixed frame with central gravity, Coriolis and centrifugal acceleration, spherical zero-height terrain and no drag. Body-up follows thrust; optical roll is prescribed geometrically. Rotational dynamics, torque limits, gimbal motion, landing contact, terrain hazards, image formation, navigation errors, guidance feedback and uncertainty are omitted. The baseline runner omits trackers; the dedicated tracker runner adds geometric measurement constraints and four fixed body-frame mounting angles to the flight NLP.
+
+## Independent top-mounted star trackers
+
+Two independent upward boresights have separate elevation/azimuth angles, shared across both hops. They are not antipodal. Their full 20 deg optical cones must clear an ideal body XY top plane; physical locations/CAD are not modeled. `scripts/analyze_star_trackers.py` searches four angles on a fixed trajectory. Each event requires the same tracker to clear 23.5 deg Sun/Earth center exclusions and the full-FOV lunar limb. Update gaps and block-boundary ages must be <=1 s. The user waived the 6 deg/s body-rate gate, assuming active attitude control outside the model. Measurements/switching are instantaneous and each block begins with a zero-age estimate.
+
+`scripts/run_tracker_coupled.py` uses the original minimum-mass objective with four global mount variables and fixed labeled event/cell assignments. All states, controls and phase durations remain optimized. Actual dimensional event times and <=1 s gaps are constrained as durations vary. Powered frames prescribe projected-downrange roll; symbolic quaternion interpolation matches inertial coast SLERP. The sizing NLP has 3325 variables. This is a local schedule formulation; outer schedule reassignment can explore alternatives.
+
+Both modes preserve independent propagation, dense sensing checks and original engine architecture. Coupled acceptance also checks the exact selected-head events and a same-mount coupled fixed-mass reproduction. Synthetic geometry, numerical refinement and the top-plane proxy do not establish real launch-window feasibility, global optimality, detailed installation clearance, navigation accuracy or actuator capability. Baseline and coupled artifacts have separate filenames.
 
 Four nominal engines are represented as one continuously throttleable equivalent source, with constant Isp and instantaneous on/off operation. Engine switching, pulsing, restart delays, transient consumption and start-cycle limits are omitted. Dry mass is fixed; engine/tank/structure mass do not scale. The surface stay consumes no time or propellant. The sole reserve rule is 1.1 times nominal round-trip consumption. Sensor motion, timing, edge margin and many flight limits are assumed placeholders; full assumptions are enumerated in the README.
 
@@ -42,6 +50,6 @@ Direction-rate constraints are discrete approximations; phase joins allow one fo
 
 Current result: wet mass 3766.68 kg, loaded propellant 2266.68 kg, consumed 2060.62 kg, Delta-v 2407.75 m/s. Outbound gate 245.01 m, descending at 20.91 m/s. Both observation windows last 1.10 s. Main sizing solve: Solve_Succeeded, 1331 iterations, about 99 s; fixed-mass cross-check reaches acceptable level and reproduces the result. Selected fixed-gate descent and 401-sample independent sensing checks pass. Chained touchdown propagation errors are 2.4 mm outbound and 3.1 mm return.
 
-Latest focused tests: 19 passed. The previous relaxed configuration passed the then-current full 43-test suite; the full suite has not been rerun after tightening and the new margin test. Its wet mass was 3754.53 kg. The 12.15 kg increase combines landing, sensing-speed and FOV-margin changes.
+Current full suite: 114 passed, including baseline integration and tracker geometry/coupling/warm-start checks. Coupled sizing and same-mount reproduction both return Solve_Succeeded; IPOPT accepts the already feasible/near-stationary warm start with zero further iterations. Coupled wet mass remains 3766.684646 kg. The previous relaxed configuration was 3754.53 kg; the 12.15 kg increase combines landing, sensing-speed and FOV-margin changes, not a tracker penalty.
 
 The runner saves JSON and opens three Matplotlib figures: 3D trajectory, flight profiles and camera angles. Use --no-show to save without windows. Run commands and plot interpretation are in the README.

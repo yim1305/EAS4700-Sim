@@ -45,3 +45,41 @@ limits:
 solver:
   nodes: {rise: 10, ascent: 30, coast: 20, braking: 30, observation: 12, terminal: 50}
   ipopt: {max_iter: 3000, tol: 1.0e-8}
+star_tracker:
+  enabled: false             # baseline runner stays unchanged; tracker CLIs enable explicitly
+  n_trackers: 2
+  mount_model: independent_top
+  antipodal: false
+  top_plane_fov_clearance_margin_deg: 0.0   # ideal top-plane proxy, not CAD clearance
+  full_cone_fov_deg: 20.0
+  sun_exclusion_deg: 23.5
+  earth_exclusion_deg: 23.5
+  bright_body_exclusion_reference: boresight_to_center
+  moon_limb_margin_deg: 0.0
+  moon_limb_reference: fov_edge
+  tracking_body_rate_max_deg_s: 6.0
+  enforce_body_rate: false    # user waiver: active attitude control assumed; rate is diagnostic only
+  update_gap_max_s: 1.0
+  acquisition_time_s: 0.0
+  switching_delay_s: 0.0
+  initial_estimate_age_s: 0.0
+  required_phase_kinds: [ascent, coast]
+  body_roll_policy: projected_downrange
+  coast_attitude_policy: inertial_endpoint_slerp
+  mount_search:
+    elevation_bounds_deg: [[10.0, 90.0], [10.0, 90.0]]
+    paired_azimuth_bounds_deg: [[0.0, 360.0], [0.0, 360.0]]
+    initial_elevations_deg: [72.66012643997279, 54.935656370286914]
+    initial_azimuths_deg: [0.0, 180.0]
+    tilt_bounds_deg: [0.0, 90.0]
+    azimuth_bounds_deg: [0.0, 360.0]
+    coarse_step_deg: 10.0
+  assumed_geometry:
+    label: synthetic_launch_aligned_geometry_not_ephemeris
+    earth_direction_I: [1.0, 0.0, 0.0]
+    sun_direction_I: [0.05059294007671333, -0.9987193571841863, 0.0]
+    directions_frozen_in: I
+    surface_stay_s: 0.0
+  analysis:
+    sample_step_s: 0.05
+    transition_time_tolerance_s: 0.001

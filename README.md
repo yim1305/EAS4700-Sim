@@ -1,6 +1,6 @@
 # Lunar Hopper Round-Trip Optimizer
 
-This project sizes a lunar hopper for an outbound flight of about 200 km and a return flight. It optimizes finite burns, coast time, descending hazard-camera observation, and terminal descent using Python, CasADi and IPOPT.
+This project sizes a lunar hopper for an outbound flight of about 200 km and a return flight. It optimizes finite burns, coast time, descending hazard-camera observation, and terminal descent using Python, CasADi and IPOPT. Two independent top-mounted star trackers can be analyzed on a fixed flight path or included in a dedicated joint flight/mount optimization.
 
 The default outbound landing target is **150 m uprange of the original target**, toward the launch site. Actual touchdown must be on the lunar surface **within 10 m of that divert target**. The return must land within 10 m of launch. The 10 m design tolerance sits inside the user's 50 m landing requirement. Only the selected divert scenario is optimized; uprange is an assumed worst case, not a proven worst direction.
 
@@ -26,7 +26,7 @@ Current settings: 10 m landing tolerance; 10 km camera range; 50 m/s downward an
 | Outbound / return landing-target offset | 10.000 / 9.999 m |
 | Main sizing solve | Solve_Succeeded, 1331 iterations, about 99 s |
 
-The fixed-mass sizing cross-check, selected fixed-gate terminal solve, independent trajectory propagation and dense sensor checks pass. Chained propagation differs from the optimized touchdown positions by 2.4 mm outbound and 3.1 mm on return. The latest focused parameter/sensor test run passed **19 tests**. The full suite last passed 43 tests on the earlier relaxed configuration; it has not been rerun in full after this tightening and the additional FOV-margin test.
+The fixed-mass sizing cross-check, selected fixed-gate terminal solve, independent trajectory propagation and dense sensor checks pass. Chained propagation differs from the optimized touchdown positions by 2.4 mm outbound and 3.1 mm on return. The current full regression suite passes **114 tests**, including baseline flight integration and independent/coupled star-tracker tests.
 
 The earlier 50 m landing-tolerance, 100 m/s sensing, zero-margin case was 3754.53 kg wet mass. The combined tightening adds about 12.15 kg; this comparison does not isolate individual constraints. Saved results: [results/roundtrip_uprange.json](results/roundtrip_uprange.json). Verification solves add runtime beyond the main solve.
 
@@ -160,7 +160,7 @@ The starting guess uses a Lambert coast arc, rocket-equation mass estimates and 
 - Downward speed 0.1–50 m/s, horizontal speed <=50 m/s, minimum altitude 10 m, sensor slew cap 30 deg/s, acquisition minimum 1 s and processing delay 0.1 s are assumed operating placeholders. The lower vehicle slew cap of 10 deg/s governs the current model.
 - Sensing operates only in the optimized observation phase, including processing, and both required points remain visible throughout that phase. Any observation time beyond the processing delay is treated as acquisition time; acquisition and processing are not separately optimized phases.
 - Seeing the target points on a smooth sphere represents geometric visibility. The model does not prove hazard recognition or usable ground-area coverage: there is no required patch radius, terrain map, pixel resolution, exposure, frame rate, motion-blur, lighting/shadow, image-noise, detection-probability or processing-workload model.
-- Star trackers, navigation filters, guidance feedback, disturbances, pointing errors, sensor failures and uncertainty propagation are not modelled.
+- The baseline runner omits star trackers. The dedicated tracker runner adds geometric update constraints and four global mounting angles using prescribed body orientation, without rotational dynamics. Navigation filters, guidance feedback, disturbances, pointing errors, sensor failures and uncertainty propagation are not modelled.
 
 ### Numerical interpretation
 
@@ -181,6 +181,50 @@ JSON contains summary masses and Delta-v, target offsets, phase timeline, gate s
 
 The runner rejects nonconvergence, failed sizing reproduction, discarded paid-for thrust or failed dense sensor validation before saving a new result. It also reports independent trajectory propagation and re-solves the selected terminal descent from its fixed moving gate. No alternate sites are optimized automatically. Old downrange and no-uprightness JSON files are historical cases, not the current configuration.
 
+## Two independent top-mounted star trackers
+
+Both trackers point upward from the hopper's body XY top plane. Each has its own elevation and azimuth, fixed in the body and shared by both hops. They need not be opposite or have equal elevation. The initial feasible +X/-X seed is 72.660 deg and 54.936 deg above XY, separated by 52.404 deg. The full 20 deg FOV must stay above an ideal opaque top plane; this is an obstruction proxy, not CAD clearance. Actual mounting locations are unspecified. See [STAR_TRACKER_PLAN.md](STAR_TRACKER_PLAN.md) for the design and current implementation status.
+
+Run in PowerShell:
+
+~~~powershell
+.\.venv\Scripts\python.exe -B scripts/analyze_star_trackers.py
+~~~
+
+This fixed-flight analyzer searches four global mounting angles using a feasible seed, deterministic multistart and bounded derivative-free refinement. It explicitly enables the optional tracker configuration. The first run solves and validates the baseline, saving full numeric arrays in `results/star_tracker_trajectory_uprange.npz`. Later runs check and reuse that cache. Summary-only JSON is insufficient trajectory input. Use `--refresh-baseline` after a baseline change or `--output-dir` for another results directory. Outputs use `star_tracker_independent_top_uprange` filenames. Historical `star_tracker_uprange` results use the superseded antipodal design and are not a valid two-top-mount installation.
+
+For the joint trajectory/mount solve:
+
+~~~powershell
+.\.venv\Scripts\python.exe -B scripts/run_tracker_coupled.py
+~~~
+
+The coupled runner starts from the validated baseline cache, constructs a labeled update schedule with a 0.9 s seed gap, then optimizes the full flight and four independent mounting angles with IPOPT. The original mass objective, engines and hazard-camera constraints are retained. A sizing problem has 3325 variables. Event head identities and collocation-cell assignments are fixed for this local subproblem; phase durations and actual dimensional event times change. The true acceptance bound remains 1 s. Symbolic quaternion coast interpolation and Hermite-Simpson event-state interpolation match the numerical analyzer. This is a local schedule formulation, not an unrestricted hybrid/global optimum.
+
+The coupled result is accepted only after checking its exact optimized labeled events with independent propagation, finer flexible availability schedules, flight propagation, dense hazard-camera sensing, thrust, selected fixed-gate descent and a same-mount coupled fixed-mass sizing reproduction. Separate `star_tracker_coupled_uprange` reports/figures and a coupled trajectory NPZ preserve the baseline artifacts. A report marked `verification_incomplete` or a failure status is not an accepted solution.
+
+Verified combined result: **Solve_Succeeded**, 3766.684646 kg wet mass, unchanged from baseline. Both actual event schedules have 567 updates and a maximum gap of 0.9 s. The installed directions have elevations 72.660 / 54.936 deg above XY and azimuths 0 / 180 deg; both FOVs clear the top plane. Exact event checks, independently refined flexible schedules, flight/camera checks, fixed-gate descent and same-mount coupled fixed-mass reproduction pass. The workflow was reproduced from caches.
+
+IPOPT accepted the verified primal/dual warm start with **zero further iterations**: the minimum-mass baseline already satisfies the new constraints with this pair. The mount variables are free, but their values stayed at the feasible seed; the mass objective does not select a unique most-robust mount. Sparse sign/complementarity-constrained linear stationarity recovery supplies multiplier guesses without moving the flight. Those guesses alone are not an accepted optimization result. This demonstrates the combined formulation at a feasible warm start, without establishing reliable cold-start recovery or a global/universal zero mass penalty. The sizing NLP takes about 17-18 s in the verified runs, excluding other validation/reproduction work.
+
+The active tracker requirements are a 20 deg full circular FOV, 23.5 deg Sun/Earth **boresight-to-center** exclusions, zero Moon-limb **FOV-edge** margin, and no more than 1 s between updates. Per the 2026-10-16 user instruction, `star_tracker.enforce_body_rate: false` waives the original 6 deg/s gate, assuming active attitude control outside this model. Full inertial body rate remains diagnostic and cannot reject measurements or cadence while disabled. Set the option to `true` to reinstate the gate. One tracker must pass all active tests at each accepted measurement; updates may alternate trackers and both can be unavailable between measurements. Each hop starts with an initialized attitude estimate of age zero. Acquisition, exposure and switching delay are assumed zero; a clear cone is assumed to contain enough usable stars. A passing geometry/cadence study does not validate attitude-control capability or tracker performance at those rates.
+
+Powered attitude follows thrust with right-handed body axes and projected-downrange roll. Coast uses a shortest inertial quaternion SLERP between ascent-end and braking-start frames; zero coast thrust is never normalized. Full inertial body rate includes roll and lunar-frame rotation. Frame singularities or orientation jumps stop the analysis instead of producing a coverage pass. Including rise through `required_phase_kinds` also checks its ascent junction for continuity.
+
+Earth/Sun directions are synthetic, frozen in an inertial frame aligned with the Moon-fixed frame at first launch. Their initial directions are `[1, 0, 0]` and `[0.05059294007671333, -0.9987193571841863, 0]`. The analyzer uses cumulative mission time and zero surface stay. Exclusions remain active for occulted bodies. These are presentation assumptions, not ephemerides or a launch-window assessment.
+
+The standalone mounting objective first seeks schedules meeting cadence, then improves extra angular clearance at measurement opportunities. The winner is checked with independently propagated positions, finer time grids, individual margin-root refinement, explicit labeled measurement events and a finite-rotation body-rate cross-check. A change that does not converge is reported as unresolved. Dense sampling and transition refinement are numerical evidence, not a continuous-time proof; failed local mounting searches do not prove no installation can work.
+
+Tracker figures show signed margins, diagnostic body rate, availability/actual updates, estimate age and both real mounting directions. JSON records geometry assumptions, obstruction proxy, search resolution, signed event margins, cadence, numerical tolerances and trajectory provenance. Exit code 0 means accepted validation; exit code 2 means no validated result. Torque, actuator capability, star counts, navigation accuracy, detailed structure/plume clearance and hardware performance remain outside this study.
+
+The cache-only +X/-X feasibility search is reproducible with `scripts/check_top_mount_feasibility.py`: 407 tested pairs, both hops passing, and a separately validated robust schedule with about 49.4165 deg extra celestial margin. It does not constrain the flight path. The production four-angle fixed-flight analyzer also passes, finding elevations 72.836 / 54.737 deg and azimuths 347.663 / 180.000 deg. These are best tested local designs under the synthetic geometry, not global or physical installation guarantees.
+
+Focused checks:
+
+~~~powershell
+.\.venv\Scripts\python.exe -B -m pytest -q -p no:cacheprovider tests/test_star_tracker.py tests/test_star_tracker_coupled.py tests/test_params.py tests/test_sensor.py
+~~~
+
 ## Code map and trajectory access
 
 | File | Responsibility |
@@ -194,6 +238,9 @@ The runner rejects nonconvergence, failed sizing reproduction, discarded paid-fo
 | hopper/postprocess.py; hopper/validate.py | Mass/Delta-v bookkeeping and independent propagation/sensing checks |
 | hopper/divert.py | Selected fixed-gate terminal descent; optional comparison helper for separate studies |
 | hopper/plotting.py; tests/ | Matplotlib output and unit/integration checks |
+| hopper/tracker_params.py; hopper/star_tracker.py | Optional tracker settings, fixed attitude, mounting search and event validation |
+| hopper/tracker_cache.py; scripts/analyze_star_trackers.py | Validated full-trajectory cache and separate tracker reports/figures |
+| hopper/star_tracker_coupled.py; scripts/run_tracker_coupled.py | Four global top-mount angles, symbolic event geometry, dimensional cadence and coupled acceptance checks |
 
 For a solved Solution, phases contain X (7 rows: offset position in m, velocity in m/s, mass in kg), U (4 rows: thrust vector and Gamma in N), and t (duration in seconds). Absolute position is mission.r_start + offset position. Coast controls are zero. sol.m_wet is launch mass and sol.z is final mass.
 
