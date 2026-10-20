@@ -8,6 +8,8 @@ from dataclasses import dataclass
 import numpy as np
 import yaml
 
+from .tracker_params import StarTracker, load_star_tracker
+
 @dataclass(frozen=True)
 class Moon:
     mu: float
@@ -98,6 +100,7 @@ class Params:
     limits: Limits
     solver: Solver
     sensor: Sensor
+    star_tracker: StarTracker | None = None
 
     @property
     def tw0(self) -> float:
@@ -269,7 +272,8 @@ def load_params(path: str, overrides: dict | None = None) -> Params:
         _require(int(so["nodes"][k]) >= 2, f"solver.nodes.{k} >= 2")
     solver = Solver({k: int(vv) for k, vv in so["nodes"].items()}, dict(so["ipopt"]))
 
-    return Params(moon, engine, vehicle, mission, limits, solver, sensor)
+    return Params(moon, engine, vehicle, mission, limits, solver, sensor,
+                  load_star_tracker(cfg.get("star_tracker")))
 
 
 def report_prechecks(p: Params, out=print) -> list:
